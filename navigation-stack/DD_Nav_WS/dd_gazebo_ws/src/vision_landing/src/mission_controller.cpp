@@ -59,6 +59,7 @@ public:
     offboard_counter_ = 0;
     armed_           = false;
     pos_received_    = false;
+    gps_valid_       = false;
     current_ned_x_   = current_ned_y_ = current_ned_z_ = 0.0f;
     current_heading_ = 0.0f;
     landing_ned_x_   = landing_ned_y_ = 0.0f;
@@ -97,6 +98,12 @@ private:
     current_ned_z_   = msg->z;
     current_heading_ = msg->heading;
     pos_received_    = true;
+    // Mark GPS valid only once EKF has produced a non-trivial altitude estimate.
+    // z stays 0 when barometer/EKF hasn't initialised — using that would break navigation.
+    if (!gps_valid_ && std::fabs(msg->z) > 0.3f) {
+      gps_valid_ = true;
+      RCLCPP_INFO(this->get_logger(), "GPS valid — z=%.2f", msg->z);
+    }
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────
@@ -113,8 +120,10 @@ private:
   // Uses GPS position when available, commanded setpoint position otherwise.
   void camera_to_ned(float gimbal_abs, float & north, float & east) const
   {
-    float base_x = pos_received_ ? current_ned_x_ : cmd_ned_x_;
-    float base_y = pos_received_ ? current_ned_y_ : cmd_ned_y_;
+    // Use GPS only when EKF has produced a valid (non-zero) altitude.
+    // If GPS is stuck at (0,0,0) fall back to commanded position.
+    float base_x = gps_valid_ ? current_ned_x_ : cmd_ned_x_;
+    float base_y = gps_valid_ ? current_ned_y_ : cmd_ned_y_;
     float cos_t  = std::cos(gimbal_abs);
     float sin_t  = std::sin(gimbal_abs);
     float fwd    = tag_z_ * cos_t - tag_y_ * sin_t;
@@ -313,7 +322,7 @@ private:
         // Compute dist: GPS-based when available; camera horizontal range otherwise.
         // Without GPS: dist = sqrt(fwd²+right²) naturally converges to 0 as drone centres over tag.
         float dist;
-        if (pos_received_) {
+        if (gps_valid_) {
           float dx = current_ned_x_ - landing_ned_x_;
           float dy = current_ned_y_ - landing_ned_y_;
           dist = std::sqrt(dx * dx + dy * dy);
@@ -387,6 +396,7 @@ private:
   int    offboard_counter_;
   bool   armed_;
   bool   pos_received_;
+  bool   gps_valid_;       // true once EKF z moves off zero (barometer initialised)
   float  current_ned_x_, current_ned_y_, current_ned_z_;
   float  current_heading_;
   float  landing_ned_x_, landing_ned_y_;
