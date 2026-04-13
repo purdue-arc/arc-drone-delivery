@@ -28,5 +28,5 @@ ros2 launch drone_nav master.launch.py
 ```bash
 cd /home/raghav/Documents/arc-drone-delivery/navigation-stack/DD_Nav_WS
 source install/setup.bash
-ros2 run vision_landing mission_controller.cpp
+ros2 run vision_landing mission_controller
 ```
