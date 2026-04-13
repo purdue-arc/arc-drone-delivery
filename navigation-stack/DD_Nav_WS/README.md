@@ -61,8 +61,7 @@ https://ivory-sale-974.notion.site/DD_Nav_WS-fd09e9d851dd440f878da854978af649
   First time only — build everything                                            
 
   ```bash
-  cd /home/raghav/Documents/arc-drone-delivery/navigation-stack/DD_Nav_WS/dd_gaz
-  ebo_ws                                                    
+  cd /home/raghav/Documents/arc-drone-delivery/navigation-stack/DD_Nav_WS/dd_gazebo_ws
   source /opt/ros/humble/setup.bash
   colcon build --symlink-install                                                
   source install/setup.bash
