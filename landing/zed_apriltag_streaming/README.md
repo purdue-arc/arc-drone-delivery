@@ -324,13 +324,58 @@ zed_apriltag_streaming/
 
 ---
 
-# 10. Future Integrations
+# 10. ROS 2 node (`zed_apriltag_node`)
 
-- ROS2 publisher node for pose
-- MAVLink bridge to PX4
-- Precision landing controller
+This package is an ament_cmake ROS 2 package. The node is the **hardware
+perception source** for the vision landing mission — it decodes the ZED
+stream, detects tags, and publishes the pose the mission controller needs.
+
+### Published topics
+
+| Topic | Type | Notes |
+|---|---|---|
+| `/landing_target_pose` | `geometry_msgs/PoseStamped` | Camera-frame pose of `target_tag_id`. **This is what `vision_landing/mission_controller` consumes.** Only published when pose estimation is enabled. |
+| `detections` | `apriltag_msgs/AprilTagDetectionArray` | All detected tags (corners, homography) — debugging/telemetry. |
+| `image_debug` | `sensor_msgs/Image` | Annotated frames; only when `publish_debug_image:=true`. |
+
+> **Pose estimation requires intrinsics.** Set `calib_file` (or `fx`/`fy`/
+> `cx`/`cy`) **and** `tag_size_m`. Without them the node logs
+> `tag_size_m set but intrinsics missing — pose disabled`, never publishes
+> `/landing_target_pose`, and the mission will search forever and then
+> failsafe-land. Calibrate the actual ZED before flying.
+
+### Key parameters
+
+| Parameter | Default | Description |
+|---|---|---|
+| `source` | `gst` | `gst` (RTP stream), `v4l2` (local camera), or `file` |
+| `gst_pipeline` | UDP H.264 on 5000 | GStreamer pipeline for `source:=gst` |
+| `tag_family` | `tag36h11` | AprilTag family |
+| `tag_size_m` | `0.0` | Physical tag edge length (m) — required for pose |
+| `target_tag_id` | `0` | Tag id to publish as the landing target; `-1` = any |
+| `calib_file` | `""` | Camera intrinsics YAML |
+| `frame_id` | `camera` | Frame id stamped on published messages |
+
+### Run
+
+```bash
+ros2 run zed_apriltag_streaming zed_apriltag_node --ros-args \
+  -p tag_size_m:=0.165 \
+  -p calib_file:=/path/to/zed_calibration.yaml \
+  -p target_tag_id:=0 \
+  -p frame_id:=camera_down
+```
+
+On the drone this runs as the `zed_apriltag` service in
+`docker/docker-compose.hardware.yml`.
+
+---
+
+# 11. Future Integrations
+
 - NTP time synchronization
 - EKF fusion with VIO / GPS
+- GPU-accelerated detection (isaac_ros_apriltag) on the Jetson
 
 ---
 

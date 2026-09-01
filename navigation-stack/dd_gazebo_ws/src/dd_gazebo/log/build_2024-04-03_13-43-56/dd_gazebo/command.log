@@ -1,6 +1,0 @@
-Invoking command in '/home/brc/DD_Nav_WS/dd_gazebo_ws/dd_gazebo/build/dd_gazebo': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /home/brc/DD_Nav_WS/dd_gazebo_ws/dd_gazebo -DCMAKE_INSTALL_PREFIX=/home/brc/DD_Nav_WS/dd_gazebo_ws/dd_gazebo/install/dd_gazebo
-Invoked command in '/home/brc/DD_Nav_WS/dd_gazebo_ws/dd_gazebo/build/dd_gazebo' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake /home/brc/DD_Nav_WS/dd_gazebo_ws/dd_gazebo -DCMAKE_INSTALL_PREFIX=/home/brc/DD_Nav_WS/dd_gazebo_ws/dd_gazebo/install/dd_gazebo
-Invoking command in '/home/brc/DD_Nav_WS/dd_gazebo_ws/dd_gazebo/build/dd_gazebo': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /home/brc/DD_Nav_WS/dd_gazebo_ws/dd_gazebo/build/dd_gazebo -- -j8 -l8
-Invoked command in '/home/brc/DD_Nav_WS/dd_gazebo_ws/dd_gazebo/build/dd_gazebo' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --build /home/brc/DD_Nav_WS/dd_gazebo_ws/dd_gazebo/build/dd_gazebo -- -j8 -l8
-Invoking command in '/home/brc/DD_Nav_WS/dd_gazebo_ws/dd_gazebo/build/dd_gazebo': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /home/brc/DD_Nav_WS/dd_gazebo_ws/dd_gazebo/build/dd_gazebo
-Invoked command in '/home/brc/DD_Nav_WS/dd_gazebo_ws/dd_gazebo/build/dd_gazebo' returned '0': CMAKE_PREFIX_PATH=/opt/ros/humble /usr/bin/cmake --install /home/brc/DD_Nav_WS/dd_gazebo_ws/dd_gazebo/build/dd_gazebo

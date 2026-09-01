@@ -1,7 +1,0 @@
-module rosidl_generator_tests {
-  module msg {
-    struct BasicIdl {
-        float x;
-    };
-  };
-};

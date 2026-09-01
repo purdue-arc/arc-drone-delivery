@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>arc_landing</name>
+  <version>0.1.0</version>
+  <description>AprilTag-based autonomous landing for ARC drone delivery</description>
+  <maintainer email="arc@purdue.edu">ARC Drone Team</maintainer>
+  <license>MIT</license>
+
+  <depend>rclpy</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>apriltag_msgs</depend>
+  <depend>mavros_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>vision_msgs</depend>
+
+  <exec_depend>apriltag_ros</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

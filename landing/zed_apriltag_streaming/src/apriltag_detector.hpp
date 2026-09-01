@@ -16,6 +16,9 @@ struct TagDetection {
   std::string family;
   cv::Point2d p[4];
   cv::Point2d center;
+  int hamming = 0;
+  float decision_margin = 0.0f;
+  double homography[9] = {};   // row-major 3x3
 
   bool has_pose = false;
   cv::Vec3d t;      // camera->tag translation (meters)

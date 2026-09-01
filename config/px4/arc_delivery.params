@@ -1,0 +1,99 @@
+# ARC drone delivery — PX4 parameters the ROS 2 stack depends on.
+#
+# Format: <index> <vehicle> <component> <name> <value> <type>
+#   type 6 = int32, 9 = float   (QGroundControl .params format)
+#
+# THIS IS NOT A COMPLETE AIRFRAME TUNE. It contains only the parameters this
+# software requires. PID gains, sensor/ESC/radio calibration are per-airframe
+# and are deliberately absent — see README.md.
+#
+# Values marked TUNE must be measured on the actual aircraft. The numbers here
+# are placeholders that will not fly correctly as-is.
+
+# ── uXRCE-DDS: the PX4 <-> ROS 2 link ────────────────────────────────────────
+# Domain 0 must match ROS_DOMAIN_ID in docker/.env.
+1	1	1	UXRCE_DDS_DOM_ID	0	6
+# TELEM port carrying the client to the Jetson. 1 = TELEM1, 2 = TELEM2.
+# Must match the MicroXRCEAgent device in docker-compose.hardware.yml
+# (/dev/ttyTHS1) and the wiring.
+1	1	1	UXRCE_DDS_CFG	102	6
+1	1	1	SER_TEL2_BAUD	921600	6
+
+# ── Gimbal: /gimbal_tilt_cmd -> gimbal_bridge -> PX4 -> BruGi board ──────────
+# MNT_MODE_IN = 4: accept MAVLink gimbal protocol v2 setpoints, which is what
+# gimbal_bridge sends. Without this the gimbal ignores the mission entirely and
+# the search sweeps look right while the camera stares at the horizon.
+1	1	1	MNT_MODE_IN	4	6
+# MNT_MODE_OUT = 0 (AUX) on hardware; 2 (MAVLink) in SITL.
+1	1	1	MNT_MODE_OUT	0	6
+# The BruGi board self-stabilises on its own IMU; PX4 supplies angle only.
+1	1	1	MNT_DO_STAB	0	6
+# TUNE: total pitch travel in degrees, mapped onto the AUX PWM range. Set so a
+# -90..0 deg command sweeps straight-down to level. Verify with a protractor,
+# props off, before flying.
+1	1	1	MNT_RANGE_PITCH	90.0000	9
+
+# ── AUX outputs: gimbal pitch, winch spool, release hook ─────────────────────
+# Function 400+ = "Peripheral via Actuator Set", the outputs
+# VEHICLE_CMD_DO_SET_ACTUATOR drives. Indices here must match
+# winch_bridge's winch_actuator_index (2) and release_actuator_index (1).
+#
+# TUNE: confirm which physical AUX pin each function lands on for your board,
+# and calibrate PWM_AUX_MINn/_MAXn/_DISn for the servo and spool actually
+# fitted. A hook whose open/closed values are reversed drops the package on
+# takeoff.
+1	1	1	PWM_AUX_FUNC1	401	6
+1	1	1	PWM_AUX_FUNC2	402	6
+1	1	1	PWM_AUX_FUNC3	403	6
+1	1	1	PWM_AUX_MIN1	1000	6
+1	1	1	PWM_AUX_MAX1	2000	6
+1	1	1	PWM_AUX_DIS1	1500	6
+1	1	1	PWM_AUX_MIN2	1000	6
+1	1	1	PWM_AUX_MAX2	2000	6
+# Spool disarmed value MUST be the "hold" position. A spool that runs when the
+# vehicle disarms pays cable onto the ground until something jams.
+1	1	1	PWM_AUX_DIS2	1500	6
+
+# ── Geofence: the layer that survives the companion computer ─────────────────
+# The mission controller's max_altitude_m / max_range_m stop it COMMANDING.
+# These stop the AIRCRAFT, and keep working when the Jetson, the container or
+# the DDS link is the thing that failed.
+#
+# Set slightly wider than the companion-side limits (docker/.env
+# MAX_ALTITUDE_M / MAX_RANGE_M) so the mission lands deliberately before PX4
+# has to intervene.
+#
+# GF_ACTION 2 = hold, 3 = RTL. RTL is right once return-to-home is trusted;
+# hold is the conservative choice for early flights with a pilot watching.
+1	1	1	GF_ACTION	2	6
+1	1	1	GF_MAX_HOR_DIST	600.0000	9
+1	1	1	GF_MAX_VER_DIST	50.0000	9
+# Refuse to arm outside the fence rather than discovering it in the air.
+1	1	1	GF_PREDICT	1	6
+
+# ── Offboard: what happens when the companion computer stops talking ─────────
+# The mission controller streams setpoints at 20 Hz. If they stop — container
+# died, Jetson wedged, DDS dropped — PX4 must take the aircraft, not coast.
+# 0.5 s is ten missed setpoints: long enough not to trip on a scheduling
+# hiccup, short enough that nobody watches it drift.
+1	1	1	COM_OF_LOSS_T	0.5000	9
+# Failsafe action on offboard loss: 2 = hold, 3 = RTL, 4 = land.
+# Hold while a pilot is present and watching; revisit once flights are routine.
+1	1	1	COM_OBL_RC_ACT	0	6
+
+# ── RC loss: the pilot's authority must always win ───────────────────────────
+# The mission controller goes permanently passive the moment the nav state
+# leaves OFFBOARD, so a pilot taking the sticks is never fought. These make
+# sure PX4 does something sane if the link to the pilot is what fails.
+1	1	1	NAV_RCL_ACT	2	6
+1	1	1	COM_RC_IN_MODE	0	6
+
+# ── Battery: the mission's failsafe threshold must be reachable ──────────────
+# The controller failsafe-lands below battery_min_remaining (0.25 by default),
+# and treats a PX4 CRITICAL warning as urgent — releasing the payload rather
+# than landing on a dangling cable. Set PX4's own thresholds below the
+# mission's so the mission acts first and PX4 is the backstop.
+# TUNE: these depend on the pack. Measure them.
+1	1	1	BAT_LOW_THR	0.2000	9
+1	1	1	BAT_CRIT_THR	0.1200	9
+1	1	1	BAT_EMERGEN_THR	0.0700	9

@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>gazebo_scan_bridge</name>
+  <version>0.1.0</version>
+  <description>
+    Bridges a Gazebo Classic ray sensor to sensor_msgs/LaserScan for Nav2.
+    Built on the host against ROS 2 Humble (where the gazebo11 dev headers
+    are); the rest of the stack runs Jazzy in the container.
+  </description>
+  <maintainer email="arc@purdue.edu">ARC Drone Team</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

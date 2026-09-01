@@ -1,0 +1,4 @@
+# Deprecated — see DEPRECATED.md. This package depends on mavros_msgs, which
+# is no longer installed in the arc-drone:jazzy image (MAVROS was dropped in
+# favour of uXRCE-DDS), so building it would fail. The live mission stack is
+# navigation-stack/.../vision_landing + landing/zed_apriltag_streaming.

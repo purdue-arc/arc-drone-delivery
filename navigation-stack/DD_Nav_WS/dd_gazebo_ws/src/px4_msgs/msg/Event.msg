@@ -1,6 +1,4 @@
 # Events interface
-uint32 MESSAGE_VERSION = 1
-
 uint64 timestamp			# time since system start (microseconds)
 
 uint32 id                   # Event ID

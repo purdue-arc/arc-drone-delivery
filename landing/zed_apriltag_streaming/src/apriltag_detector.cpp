@@ -78,6 +78,11 @@ std::vector<TagDetection> AprilTagDetector::detect(const cv::Mat& gray) {
     td.family = det->family ? std::string(det->family->name) : "unknown";
     td.center = cv::Point2d(det->c[0], det->c[1]);
     for (int k = 0; k < 4; k++) td.p[k] = cv::Point2d(det->p[k][0], det->p[k][1]);
+    td.hamming = det->hamming;
+    td.decision_margin = det->decision_margin;
+    if (det->H && det->H->nrows == 3 && det->H->ncols == 3) {
+      for (int k = 0; k < 9; ++k) td.homography[k] = det->H->data[k];
+    }
 
     if (pose_enabled_) {
       info_.det = det;

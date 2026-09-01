@@ -1,0 +1,131 @@
+# Navigation view: Nav2's global costmap, the planned transit route, and the
+# aircraft's odometry trail. Top-down, so a detour around the building is
+# obvious. This is the "is obstacle avoidance working" window.
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded: ~
+    Tree Height: 640
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 30; 32; 38
+    Fixed Frame: map
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 5
+      Plane Cell Count: 40
+      Color: 80; 80; 92
+      Alpha: 0.3
+
+    # The occupancy grid, drawn as a point cloud by costmap_to_cloud.
+    # RViz2's Map display cannot render it on this machine — its
+    # indexed_8bit_image shader fails to link against the local Mesa stack and
+    # the grid stays blank, with hardware GL and with llvmpipe alike.
+    # Intensity is the cell cost: low = inflation, high = lethal obstacle.
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Occupancy grid (costmap)
+      Enabled: true
+      Topic:
+        Value: /arc/costmap_cloud
+        Depth: 5
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Style: Boxes
+      Size (m): 0.2
+      Color Transformer: Intensity
+      Channel Name: intensity
+      Autocompute Intensity Bounds: false
+      Min Intensity: 0
+      Max Intensity: 100
+      Decay Time: 0
+
+    # Kept but disabled: this is the display that cannot render here.
+    - Class: rviz_default_plugins/Map
+      Name: Nav2 global costmap (broken shader)
+      Enabled: false
+      Topic:
+        Value: /global_costmap/costmap
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Color Scheme: costmap
+      Alpha: 0.7
+
+    - Class: rviz_default_plugins/Path
+      Name: Planned transit route
+      Enabled: true
+      Topic:
+        Value: /arc/transit/path
+        Depth: 5
+        Durability Policy: Volatile
+        Reliability Policy: Reliable
+      Color: 25; 255; 120
+      Line Style: Billboards
+      Line Width: 0.4
+
+    - Class: rviz_default_plugins/Pose
+      Name: Delivery goal
+      Enabled: true
+      Topic:
+        Value: /arc/transit/goal
+        Depth: 5
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Shape: Arrow
+      Color: 255; 60; 60
+      Shaft Length: 2.0
+      Shaft Radius: 0.3
+      Head Length: 0.8
+      Head Radius: 0.6
+
+    - Class: rviz_default_plugins/Odometry
+      Name: Flown track
+      Enabled: true
+      Topic:
+        Value: /odometry/filtered
+        Depth: 5
+        Durability Policy: Volatile
+        Reliability Policy: Reliable
+      Keep: 600
+      Position Tolerance: 0.3
+      Angle Tolerance: 0.3
+      Shape:
+        Value: Arrow
+        Color: 255; 200; 40
+        Alpha: 0.85
+        Shaft Length: 0.7
+        Shaft Radius: 0.1
+        Head Length: 0.3
+        Head Radius: 0.2
+      Covariance:
+        Value: false
+
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Names: true
+      Show Axes: true
+      Show Arrows: false
+      Marker Scale: 4
+
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: TopDown
+      Scale: 11
+      Target Frame: map
+      X: 20
+      Y: 0
+Window Geometry:
+  Height: 900
+  Width: 1100
+  Displays:
+    collapsed: false

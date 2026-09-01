@@ -1,5 +1,0 @@
-
-if(RL_TOOLS_ENABLE_LIBWEBSOCKETS)
-add_executable(rl_environments_multi_agent_bottleneck_ui bottleneck_ui.cpp)
-target_link_libraries(rl_environments_multi_agent_bottleneck_ui RLtools::RLtools)
-endif()

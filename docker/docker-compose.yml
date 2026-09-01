@@ -1,0 +1,132 @@
+# docker/docker-compose.yml
+# ----------------------------------------------------------------------------
+# Base compose for arc-drone-delivery on ROS 2 Jazzy (uXRCE-DDS stack).
+#
+# Two core services share one image:
+#   - xrce_agent — Micro XRCE-DDS Agent, the PX4 ↔ ROS 2 bridge (/fmu/* topics)
+#   - mission    — vision_landing mission_controller (search + precision landing)
+#
+# Perception is supplied per environment:
+#   - SITL: vision_landing's apriltag_detector on the Gazebo camera
+#     (see navigation-stack/DD_Nav_WS/dd_gazebo_ws/src/vision_landing/README.md)
+#   - hardware: the zed_apriltag service in docker-compose.hardware.yml,
+#     which publishes /landing_target_pose from the ZED H.264 stream
+#
+# Run with one of the override files:
+#   docker compose -f docker-compose.yml -f docker-compose.sitl.yml up
+#   docker compose -f docker-compose.yml -f docker-compose.hardware.yml up
+#
+# The mission controller stays IDLE until the operator starts it:
+#   docker compose exec mission bash -ic \
+#     'ros2 topic pub --once /arc/mission/start std_msgs/msg/Bool "{data: true}"'
+# Publishing {data: false} mid-flight aborts into a PX4 AUTO.LAND failsafe.
+# ----------------------------------------------------------------------------
+
+# YAML anchor — shared config inherited by every service
+x-arc-base: &arc-base
+  image: arc-drone:jazzy
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.jazzy
+    args:
+      USER_UID: ${USER_UID:-1000}
+      USER_GID: ${USER_GID:-1000}
+      ROS_DISTRO: jazzy
+  # network_mode: host is critical — DDS multicast discovery does not work
+  # across bridge networks without RMW config; host networking sidesteps it.
+  network_mode: host
+  # ipc: host enables Fast DDS shared-memory transport between containers.
+  # Without it, all messages go through TCP loopback (slow, lossy).
+  ipc: host
+  environment:
+    # PX4's uxrce_dds_client publishes on DDS domain 0 by default
+    # (UXRCE_DDS_DOM_ID) — every node that needs /fmu/* must match it.
+    ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+    ROS_DISTRO: jazzy
+    DISPLAY: ${DISPLAY:-:0}
+  volumes:
+    # Mount the workspace at /home/arc/arc_ws (matches Dockerfile WORKDIR)
+    - ../:/home/arc/arc_ws:rw
+    # X11 socket for any GUI tools (rviz, rqt) launched via docker compose run
+    - /tmp/.X11-unix:/tmp/.X11-unix
+  restart: unless-stopped
+  # Short stop_grace_period so Ctrl+C feels responsive
+  stop_grace_period: 3s
+
+services:
+
+  # --------------------------------------------------------------------------
+  # Micro XRCE-DDS Agent — PX4 ↔ ROS 2 bridge. UDP for SITL (default);
+  # the hardware overlay switches it to the Pixhawk serial port.
+  # --------------------------------------------------------------------------
+  xrce_agent:
+    <<: *arc-base
+    container_name: arc_xrce_agent
+    command:
+      - MicroXRCEAgent
+      - udp4
+      - -p
+      - "8888"
+
+  # --------------------------------------------------------------------------
+  # Mission stack — one launch file starts all three nodes:
+  #   zed_apriltag_node   RTP stream -> /landing_target_pose
+  #   gimbal_bridge       /gimbal_tilt_cmd -> PX4 gimbal manager
+  #   mission_controller  the search + precision-landing FSM
+  #
+  # The overlays supply the environment-specific arguments (RTP port, tag
+  # size, camera calibration). The controller starts IDLE — see `make start`.
+  # --------------------------------------------------------------------------
+  mission:
+    <<: *arc-base
+    container_name: arc_mission
+    depends_on:
+      - xrce_agent
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      ROS_DISTRO: jazzy
+      DISPLAY: ${DISPLAY:-:0}
+      # Refuse to start against a broken overlay instead of restart-looping
+      # with "Package 'vision_landing' not found".
+      ARC_REQUIRE_PKG: vision_landing
+    # NOTE the $$ — it escapes compose's own substitution so these expand
+    # inside the container from the `environment:` block. Using a single $
+    # would bake .env values in at config time, making every overlay
+    # identical (SITL would silently inherit the hardware tag size).
+    # The defaults below are the SITL values; the hardware overlay overrides
+    # them via `environment:`.
+    # LAUNCH_FILE selects the mission shape:
+    #   landing_pipeline.launch.py — search and precision land only. No winch,
+    #                                no Nav2, no delivery waypoint.
+    #   delivery.launch.py         — the full delivery: Nav2 planning, the
+    #                                winch bridge, transit and return.
+    # The overlays set it. It defaults to the landing pipeline because that is
+    # the conservative mission, not because it is the complete one.
+    #
+    # DELIVERY_LAT/LON default to nan, which the controller reads as "no
+    # delivery" and degrades to search-and-land — so an unset coordinate can
+    # never send the aircraft somewhere unintended.
+    command:
+      - bash
+      - -lc
+      - >-
+        ros2 launch vision_landing $${LAUNCH_FILE:-landing_pipeline.launch.py}
+        udp_port:=$${RTP_PORT:-5600}
+        tag_size_m:=$${TAG_SIZE_M:-0.4}
+        target_tag_id:=$${TARGET_TAG_ID:-0}
+        calib_file:=$${CALIB_FILE:-}
+        delivery_lat:=$${DELIVERY_LAT:-nan}
+        delivery_lon:=$${DELIVERY_LON:-nan}
+        transit_height_m:=$${TRANSIT_HEIGHT_M:-15.0}
+        winch_hover_height_m:=$${WINCH_HOVER_HEIGHT_M:-12.0}
+        max_altitude_m:=$${MAX_ALTITUDE_M:-40.0}
+        max_range_m:=$${MAX_RANGE_M:-2000.0}
+        require_plan_to_transit:=$${REQUIRE_PLAN_TO_TRANSIT:-true}
+        record:=$${RECORD:-false}
+        bag_dir:=$${BAG_DIR:-/home/arc/arc_ws/bags/mission}
+        status_topic:=$${PX4_STATUS_TOPIC:-/fmu/out/vehicle_status}
+        local_position_topic:=$${PX4_LOCAL_POSITION_TOPIC:-/fmu/out/vehicle_local_position}
+        battery_topic:=$${PX4_BATTERY_TOPIC:-/fmu/out/battery_status}
+        land_detected_topic:=$${PX4_LAND_DETECTED_TOPIC:-/fmu/out/vehicle_land_detected}

@@ -1,6 +1,6 @@
 bt_navigator:
   ros__parameters:
-    use_sim_time: true
+    use_sim_time: false
     global_frame: map
     robot_base_frame: base_link
     transform_tolerance: 0.1
@@ -10,7 +10,7 @@ bt_navigator:
     path_blackboard_id: path
     navigators: ['navigate_to_pose']
     navigate_to_pose:
-      plugin: "nav2_bt_navigator/NavigateToPoseNavigator" 
+      plugin: "nav2_bt_navigator::NavigateToPoseNavigator" 
     plugin_lib_names:
       - nav2_compute_path_to_pose_action_bt_node
       - nav2_follow_path_action_bt_node
@@ -40,11 +40,11 @@ bt_navigator:
 
 bt_navigator_rclcpp_node:
   ros__parameters:
-    use_sim_time: True
+    use_sim_time: false
 
 controller_server:
   ros__parameters:
-    use_sim_time: True
+    use_sim_time: false
     controller_frequency: 20.0
     min_x_velocity_threshold: 0.001
     min_y_velocity_threshold: 0.5
@@ -92,7 +92,7 @@ controller_server:
       TrajectoryVisualizer:
         trajectory_step: 5
         time_step: 3
-      critics: ["ConstraintCritic", "ObstacleCritic" "CostCritic", "GoalCritic", "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
+      critics: ["ConstraintCritic", "ObstacleCritic", "CostCritic", "GoalCritic", "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
       ConstraintCritic:
         enabled: true
         cost_power: 1
@@ -121,7 +121,7 @@ controller_server:
         collision_cost: 10000.0
         collision_margin_distance: 0.1
         near_goal_distance: 0.5
-        inflation_radius: 0.55 # (only in Humble)
+        inflation_radius: 0.65 # (only in Humble)
         cost_scaling_factor: 10.0 # (only in Humble)
       CostCritic:
         enabled: true
@@ -167,7 +167,7 @@ controller_server:
       
 controller_server_rclcpp_node:
   ros__parameters:
-    use_sim_time: True
+    use_sim_time: false
 
 local_costmap:
   local_costmap:
@@ -176,63 +176,66 @@ local_costmap:
       publish_frequency: 2.0
       global_frame: odom
       robot_base_frame: base_link
-      use_sim_time: True
+      use_sim_time: false
       rolling_window: true
       width: 6
       height: 6
       resolution: 0.05
       robot_radius: 0.6
-      plugins: ["stvl_layer", "inflation_layer"]
+      # Obstacle source is the 360-degree lidar on /scan, bridged from Gazebo
+      # by gazebo_scan_bridge (and, on the aircraft, published by the real
+      # lidar driver). This replaces a spatio_temporal_voxel_layer config that
+      # read /intel_realsense_r200_depth/points: that plugin is a separate
+      # package which is not installed, and the RealSense topic does not exist
+      # on this airframe.
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        # LAYER-level gate, separate from the per-source one below. It defaults
+        # to 2.0 m and silently drops every point above that — which, combined
+        # with the source's min_obstacle_height of 2.0, rejected literally
+        # every return and left the costmap empty. Both must be set.
+        max_obstacle_height: 40.0
+        observation_sources: livox
+        livox:
+          topic: /livox/points
+          data_type: "PointCloud2"
+          marking: true
+          clearing: true
+          obstacle_max_range: 30.0
+          obstacle_min_range: 0.5
+          raytrace_max_range: 35.0
+          raytrace_min_range: 0.5
+          # Heights are in the costmap's global frame (map), where z=0 is
+          # ground at the launch point. The Mid-360 looks 7 deg down, so it
+          # always paints the ground — which filled the costmap with false
+          # obstacles whenever the aircraft was low and truncated every plan.
+          # Ignoring everything below 2 m removes the ground return in every
+          # flight phase, landed or cruising, while still seeing buildings,
+          # poles and trees, which is what matters at transit altitude.
+          min_obstacle_height: 2.0
+          max_obstacle_height: 40.0
+          # The bridge emits inf for "no return"; treat it as free space to
+          # raytrace through, not as an obstacle at max range.
+          inf_is_valid: true
+          # 0.0 disables the staleness check. The bridge runs ~10 Hz but the
+          # cross-distro link measures ~6-7 Hz, and a tighter expectation
+          # makes Nav2 spam "sensor data is stale" and refuse to plan.
+          expected_update_rate: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.55
-      stvl_layer:
-        plugin: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
-        enabled: true
-        voxel_decay: 15.
-        decay_model: 0
-        voxel_size: 0.05
-        track_unknown_space: true
-        unknown_threshold: 15
-        mark_threshold: 0
-        update_footprint_enabled: true
-        combination_method: 1
-        origin_z: 0.0
-        publish_voxel_map: true
-        transform_tolerance: 0.2
-        mapping_mode: false
-        map_save_duration: 60.0
-        observation_sources: pointcloud
-        pointcloud:
-          data_type: PointCloud2
-          topic: /intel_realsense_r200_depth/points
-          marking: true
-          clearing: true
-          obstacle_range: 3.0
-          min_obstacle_height: 0.0
-          max_obstacle_height: 2.0
-          expected_update_rate: 0.0
-          observation_persistence: 0.0
-          inf_is_valid: false
-          filter: "voxel"
-          voxel_min_points: 0
-          clear_after_reading: true
-          max_z: 7.0
-          min_z: 0.1
-          vertical_fov_angle: 0.8745
-          horizontal_fov_angle: 1.048
-          decay_acceleration: 15.0
-          model_type: 0
+        inflation_radius: 0.65
       static_layer:
         map_subscribe_transient_local: True
       always_send_full_costmap: True
   local_costmap_client:
     ros__parameters:
-      use_sim_time: True
+      use_sim_time: false
   local_costmap_rclcpp_node:
     ros__parameters:
-      use_sim_time: True
+      use_sim_time: false
 
 global_costmap:
   global_costmap:
@@ -241,71 +244,72 @@ global_costmap:
       publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_link
-      use_sim_time: True
+      use_sim_time: false
       robot_radius: 0.6
-      resolution: 0.05
-      track_unknown_space: true
-      plugins: ["static_layer", "stvl_layer", "inflation_layer"]
-      stvl_layer:
-        plugin: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
+      # Rolling window sized for a delivery transit. Without an explicit size
+      # nav2 defaults to 5x5 m and aborts any goal outside it. 0.2 m cells
+      # keep a 120 m map to 600x600 rather than 2400x2400 at 0.05.
+      rolling_window: true
+      width: 120
+      height: 120
+      resolution: 0.2
+      track_unknown_space: false
+      # No static_layer: there is no pre-built map server for the delivery
+      # area, and with track_unknown_space the planner treats unobserved cells
+      # as unknown rather than free. Obstacles come from the live lidar.
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
-        voxel_decay: 15.0
-        decay_model: 0
-        voxel_size: 0.05
-        track_unknown_space: true
-        unknown_threshold: 15
-        mark_threshold: 0
-        update_footprint_enabled: true
-        combination_method: 1
-        origin_z: 0.0
-        publish_voxel_map: true
-        transform_tolerance: 0.2
-        mapping_mode: false
-        map_save_duration: 60.0
-        observation_sources: pointcloud
-        pointcloud:
-          data_type: PointCloud2
-          topic: /intel_realsense_r200_depth/points
+        # LAYER-level gate, separate from the per-source one below. It defaults
+        # to 2.0 m and silently drops every point above that — which, combined
+        # with the source's min_obstacle_height of 2.0, rejected literally
+        # every return and left the costmap empty. Both must be set.
+        max_obstacle_height: 40.0
+        observation_sources: livox
+        livox:
+          topic: /livox/points
+          data_type: "PointCloud2"
           marking: true
           clearing: true
-          obstacle_range: 100.0
-          min_obstacle_height: 0.0
-          max_obstacle_height: 100.0
+          obstacle_max_range: 30.0
+          obstacle_min_range: 0.5
+          raytrace_max_range: 35.0
+          raytrace_min_range: 0.5
+          # Heights are in the costmap's global frame (map), where z=0 is
+          # ground at the launch point. The Mid-360 looks 7 deg down, so it
+          # always paints the ground — which filled the costmap with false
+          # obstacles whenever the aircraft was low and truncated every plan.
+          # Ignoring everything below 2 m removes the ground return in every
+          # flight phase, landed or cruising, while still seeing buildings,
+          # poles and trees, which is what matters at transit altitude.
+          min_obstacle_height: 2.0
+          max_obstacle_height: 40.0
+          inf_is_valid: true
           expected_update_rate: 0.0
-          observation_persistence: 0.0
-          inf_is_valid: false
-          filter: "voxel"
-          voxel_min_points: 0
-          clear_after_reading: true
-          max_z: 7.0
-          min_z: 0.1
-          vertical_fov_angle: 0.8745
-          horizontal_fov_angle: 1.048
-          decay_acceleration: 15.0
-          model_type: 0
-      static_layer:
+      unused_static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: True
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        inflation_radius: 0.65
       always_send_full_costmap: True
   global_costmap_client:
     ros__parameters:
-      use_sim_time: True
+      use_sim_time: false
   global_costmap_rclcpp_node:
     ros__parameters:
-      use_sim_time: True
+      use_sim_time: false
 
 map_server:
   ros__parameters:
-    use_sim_time: True
+    use_sim_time: false
     yaml_filename: "turtlebot3_world.yaml"
 
 map_saver:
   ros__parameters:
-    use_sim_time: True
+    use_sim_time: false
     save_map_timeout: 5.0
     free_thresh_default: 0.25
     occupied_thresh_default: 0.65
@@ -314,15 +318,15 @@ map_saver:
 planner_server:
   ros__parameters:
     expected_planner_frequency: 20.0
-    use_sim_time: True
+    use_sim_time: false
     planner_plugins: ["GridBased", "GridOptimized"]
     GridBased:
-      plugin: "nav2_navfn_planner/NavfnPlanner"
+      plugin: "nav2_navfn_planner::NavfnPlanner"
       use_astar: True
       allow_unknown: True
       tolerance: 1.0
     GridOptimized:
-      plugin: "nav2_theta_star_planner/ThetaStarPlanner"
+      plugin: "nav2_theta_star_planner::ThetaStarPlanner"
       how_many_corners: 8
       allow_unknown: True
       w_euc_cost: 1.0
@@ -331,7 +335,7 @@ planner_server:
 
 planner_server_rclcpp_node:
   ros__parameters:
-    use_sim_time: True
+    use_sim_time: false
 
 recoveries_server:
   ros__parameters:
@@ -340,13 +344,13 @@ recoveries_server:
     cycle_frequency: 10.0
     recovery_plugins: ["backup", "wait"]
     backup:
-      plugin: "nav2_recoveries/BackUp"
+      plugin: "nav2_behaviors::BackUp"
     wait:
-      plugin: "nav2_recoveries/Wait"
+      plugin: "nav2_behaviors::Wait"
     global_frame: odom
     robot_base_frame: base_link
     transform_timeout: 0.1
-    use_sim_time: true
+    use_sim_time: false
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.0
     min_rotational_vel: 0.4
@@ -354,7 +358,7 @@ recoveries_server:
 
 robot_state_publisher:
   ros__parameters:
-    use_sim_time: True
+    use_sim_time: false
 
 waypoint_follower:
   ros__parameters:

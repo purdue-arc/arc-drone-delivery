@@ -63,9 +63,11 @@ class OffboardControl(Node):
         )
 
         #Create subscriptions
+        # This PX4 build publishes the versioned topic name; the message
+        # definition still maps to px4_msgs/VehicleStatus.
         self.status_sub = self.create_subscription(
             VehicleStatus,
-            '/fmu/out/vehicle_status',
+            '/fmu/out/vehicle_status_v2',
             self.vehicle_status_callback,
             qos_profile)
         
@@ -189,17 +191,26 @@ class OffboardControl(Node):
         self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM, 1.0)
         self.get_logger().info("Arm command send")
 
-    # Takes off the vehicle to a user specified altitude (meters)
+    # Takes off the vehicle in place to home_alt + MIS_TAKEOFF_ALT.
+    # param5/6/7 (lat/lon/alt) must be NaN, not 0: PX4's navigator treats any
+    # finite lat/lon as a takeoff target position, so zeros command a takeoff
+    # towards (0,0) — the position controller never spools up and PX4
+    # auto-disarms after 10s. NaN alt selects the MIS_TAKEOFF_ALT default
+    # (param7 would otherwise be absolute AMSL altitude, not height above ground).
     def take_off(self):
-        self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_TAKEOFF, param1 = 1.0, param7=5.0) # param7 is altitude in meters
+        nan = float('nan')
+        self.publish_vehicle_command(VehicleCommand.VEHICLE_CMD_NAV_TAKEOFF,
+                                     param1=1.0, param5=nan, param6=nan, param7=nan)
         self.get_logger().info("Takeoff command send")
 
     #publishes command to /fmu/in/vehicle_command
-    def publish_vehicle_command(self, command, param1=0.0, param2=0.0, param7=0.0):
+    def publish_vehicle_command(self, command, param1=0.0, param2=0.0, param5=0.0, param6=0.0, param7=0.0):
         msg = VehicleCommand()
         msg.param1 = param1
         msg.param2 = param2
-        msg.param7 = param7    # altitude value in takeoff command
+        msg.param5 = param5    # latitude in takeoff command (NaN = current)
+        msg.param6 = param6    # longitude in takeoff command (NaN = current)
+        msg.param7 = param7    # altitude value in takeoff command (NaN = default)
         msg.command = command  # command ID
         msg.target_system = 1  # system which should execute the command
         msg.target_component = 1  # component which should execute the command, 0 for all components
@@ -221,13 +232,18 @@ class OffboardControl(Node):
         if (msg.failsafe != self.failsafe):
             self.get_logger().info(f"FAILSAFE: {msg.failsafe}")
         
-        if (msg.pre_flight_checks_pass != self.flightCheck):
-            self.get_logger().info(f"FlightCheck: {msg.pre_flight_checks_pass}")
+        # NOTE: on this PX4 build VehicleStatus.pre_flight_checks_pass is not
+        # populated (stays false even when PX4 reports "Ready for takeoff"), so
+        # we derive readiness from the absence of a failsafe. PX4 remains the
+        # real arming authority and will reject an unsafe arm regardless.
+        flight_check = not msg.failsafe
+        if (flight_check != self.flightCheck):
+            self.get_logger().info(f"FlightCheck: {flight_check}")
 
         self.nav_state = msg.nav_state
         self.arm_state = msg.arming_state
         self.failsafe = msg.failsafe
-        self.flightCheck = msg.pre_flight_checks_pass
+        self.flightCheck = flight_check
 
 
     #receives Twist commands from Teleop and converts NED -> FLU

@@ -3,7 +3,7 @@
 #include <sensor_msgs/msg/imu.hpp>
 #include <px4_msgs/msg/vehicle_odometry.hpp>
 #include <px4_msgs/msg/vehicle_local_position.hpp>
-#include <cv_bridge/cv_bridge.h>
+#include <cv_bridge/cv_bridge.hpp>
 #include <opencv2/opencv.hpp>
 #include <deque>
 
@@ -34,6 +34,21 @@ class VioNode : public rclcpp::Node
 public:
   VioNode() : Node("vio_node")
   {
+    // This node publishes to /fmu/in/vehicle_visual_odometry — it feeds the
+    // flight controller's state estimator. It has never been validated, its
+    // intrinsics are hardcoded (525/320/240, wrong for both the SITL camera
+    // and the ZED), and the topics it consumes are not published anywhere in
+    // this stack. Enabling it on an aircraft would corrupt the estimate the
+    // aircraft flies on. It stays behind vio:=false; say so at startup rather
+    // than let it look like a working part of the pipeline.
+    RCLCPP_WARN(get_logger(),
+      "vio_node is UNVALIDATED and feeds the PX4 EKF "
+      "(/fmu/in/vehicle_visual_odometry). Hardcoded intrinsics fx=fy=%.0f "
+      "cx=%.0f cy=%.0f are wrong for every camera on this aircraft, and it "
+      "subscribes to /camera/image_raw and /imu/data, which nothing here "
+      "publishes. Do NOT run this on hardware.",
+      FOCAL_PX, CX, CY);
+
     img_sub_ = create_subscription<sensor_msgs::msg::Image>(
       "/camera/image_raw", 10,
       std::bind(&VioNode::image_callback, this, std::placeholders::_1));

@@ -177,3 +177,59 @@ The following large files are stored in Git LFS and were **not** included in the
 - [PX4 Autopilot](https://px4.io/)
 - [Gazebo Simulation](https://gazebosim.org/)
 - [DroneDeliverySim (original)](https://github.com/Ymz2006/DroneDeliverySim)
+
+## Flight software status
+
+Date: 2026-09-01
+Environment:
+- Host: Ubuntu 22.04 (unchanged)
+- Docker image: arc-drone:jazzy (Ubuntu 24.04 + ROS 2 Jazzy)
+- Workspace: ~/Documents/arc-drone-delivery
+- Build: colcon --symlink-install
+
+**PX4 interface: uXRCE-DDS end-to-end.** MAVROS has been dropped — the
+flight stack talks to PX4 directly on `/fmu/*` topics through the Micro
+XRCE-DDS Agent. There is one mission stack:
+
+| Role | Package |
+|---|---|
+| Mission logic (search + precision landing + failsafes) | `navigation-stack/.../vision_landing` (`mission_controller`) |
+| Perception, hardware (ZED) | `landing/zed_apriltag_streaming` (`zed_apriltag_node`) |
+| Perception, SITL (Gazebo camera) | `vision_landing` (`apriltag_detector`) |
+| Deployment | `docker/` — `xrce_agent`, `mission`, `perception`/`zed_apriltag` |
+
+Both perception nodes publish the same `/landing_target_pose` (camera-frame
+tag pose), so the mission controller is unchanged between sim and hardware.
+
+The mission controller starts **IDLE** and does not arm until an operator
+publishes to `/arc/mission/start` (`make start`). See
+`navigation-stack/DD_Nav_WS/dd_gazebo_ws/src/vision_landing/README.md`.
+
+### Flight readiness
+
+The full delivery mission has **not yet run end to end**, in SITL or on
+hardware. Before a first powered test:
+
+- [x] Container build and launch path works (`make up-sitl` / `make up-hw`)
+- [x] PX4 topic names pinned to the firmware, and checkable (`make check-px4-topics`)
+- [x] Delivery mission wired into the hardware overlay (winch, Nav2, transit)
+- [x] Failsafe stows or drops the payload before landing (`SECURE_PAYLOAD`)
+- [x] Companion-side geofence enforced in flight; PX4 `GF_*` set in `config/px4/`
+- [x] Mission telemetry on `/arc/mission/state`, bagged with `record:=true`
+- [x] Unit tests on the two transforms that place the aircraft (`make test`)
+- [ ] **Livox driver** vendored and publishing `/livox/points` — until then the
+      transit refuses to fly (`require_plan_to_transit`), by design
+- [ ] **Winch bench-tested** with a load, props off — the timings in
+      `winch_bridge` are unmeasured placeholders
+- [ ] **Gimbal sweep verified** against a protractor, props off
+- [ ] **ZED calibration generated** and `CALIB_FILE` set — perception now
+      refuses to start without it
+- [ ] Full mission flown repeatedly in SITL
+
+`config/px4/README.md` lists the bench tests these imply.
+
+Deprecated:
+- `arc_landing` — the old MAVROS landing FSM (see `arc_landing/DEPRECATED.md`)
+
+Ignored via COLCON_IGNORE:
+- navigation-stack/PX4-Autopilot (flight controller, not a ROS package)

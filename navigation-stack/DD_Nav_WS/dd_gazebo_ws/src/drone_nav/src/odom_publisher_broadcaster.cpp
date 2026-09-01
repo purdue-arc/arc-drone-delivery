@@ -16,10 +16,21 @@ void OdomPublisherBroadcaster::pos_sub_callback(const std::shared_ptr<px4_msgs::
 {
     geometry_msgs::msg::TransformStamped transform;
     nav_msgs::msg::Odometry odom_msg;
-    builtin_interfaces::msg::Time time;
-
-    time.sec = int32_t(msg->timestamp / 1000000); //converting the timestamp from micro-seconds to seconds
-    time.nanosec = u_int32_t(msg->timestamp * 1000); //converting the timestamp from micro-seconds to nano-seconds
+    // Stamp with ROS time, NOT msg->timestamp.
+    //
+    // PX4's uORB timestamp is microseconds since FLIGHT CONTROLLER BOOT, not
+    // since the epoch, and there is no time sync in this stack to convert it.
+    // Using it directly stamped the odom->base_footprint transform at ~580 s
+    // (i.e. 1970) while every other publisher — the lidar bridge, the static
+    // transforms — used real ROS time. Nav2's costmap then dropped every
+    // point cloud with
+    //   "the timestamp on the message is earlier than all the data in the
+    //    transform cache"
+    // and the occupancy grid stayed permanently empty.
+    //
+    // The old code also computed nanosec as timestamp*1000, which overflows
+    // uint32 for any non-trivial uptime and produced garbage regardless.
+    const builtin_interfaces::msg::Time time = this->now();
 
     //Setting the header and time stamps of the transform and published odometry msg
     transform.header.stamp = time;
@@ -51,9 +62,9 @@ void OdomPublisherBroadcaster::pos_sub_callback(const std::shared_ptr<px4_msgs::
     odom_msg.twist.twist.linear.x = enu_velocity.x();
     odom_msg.twist.twist.linear.y = enu_velocity.y();
     odom_msg.twist.twist.linear.z = enu_velocity.z();
-    odom_msg.twist.twist.angular.x =  flu_angular_velocity.x();
-    odom_msg.twist.twist.angular.y = flu_angular_velocity.x();
-    odom_msg.twist.twist.angular.z = flu_angular_velocity.x();
+    odom_msg.twist.twist.angular.x = flu_angular_velocity.x();
+    odom_msg.twist.twist.angular.y = flu_angular_velocity.y();
+    odom_msg.twist.twist.angular.z = flu_angular_velocity.z();
     //Only non-zero values on the diagonal as the off-diagonal values indicate their is relation between the vairables. which there is not
     odom_msg.pose.covariance = {msg->position_variance[0], 0.0, 0.0, 0.0, 0.0, 0.0,
                                 0.0, msg->position_variance[1], 0.0, 0.0, 0.0, 0.0,

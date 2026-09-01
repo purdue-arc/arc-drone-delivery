@@ -1,7 +1,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
-#include <cv_bridge/cv_bridge.h>
+#include <cv_bridge/cv_bridge.hpp>
 #include <opencv2/opencv.hpp>
 extern "C" {
 #include <apriltag/apriltag.h>
@@ -27,14 +27,20 @@ public:
     td_->quad_decimate = 2.0;
     td_->nthreads      = 4;
 
+    // Default is the SITL Gazebo camera; on hardware use zed_apriltag_node
+    // instead of this node (it decodes the ZED stream directly).
+    const auto image_topic = this->declare_parameter<std::string>(
+      "image_topic", "/camera/image_raw");
+
     sub_ = this->create_subscription<sensor_msgs::msg::Image>(
-      "/zed/zed_node/rgb/image_rect_color", 10,
+      image_topic, 10,
       std::bind(&AprilTagDetector::image_callback, this, std::placeholders::_1));
 
     // Publish pose in camera frame directly to landing_target_pose
     pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("/landing_target_pose", 10);
 
-    RCLCPP_INFO(this->get_logger(), "AprilTag detector started (tagsize=%.2f m)", TAGSIZE);
+    RCLCPP_INFO(this->get_logger(), "AprilTag detector started on '%s' (tagsize=%.2f m)",
+                image_topic.c_str(), TAGSIZE);
   }
 
   ~AprilTagDetector()
