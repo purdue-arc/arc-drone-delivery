@@ -105,6 +105,145 @@ complete mission in simulation. Nothing in it has ever run on real hardware.
 
 # Entries
 
+## 2026-09-02 (evening) — Obstacle safety on both legs, altitude-aware costmap, new Purdue route
+
+**In one sentence:** the return flight is now routed around obstacles like the
+outbound one was, the aircraft refuses to move unless the route ahead is
+confirmed clear, the obstacle map finally understands altitude, and the mission
+flies from the Intramural Gold Fields to Krach Lawn.
+
+### The route
+
+Both coordinates are the centroids of the named features in the OSM extract
+already in this repo (`Path_Planning/worlds/map-2.osm`) — not recalled from
+memory.
+
+| Point | Latitude | Longitude |
+|---|---|---|
+| Purdue Gold Intramural Fields — pad, takeoff and landing | **40.4289204** | **-86.9279914** |
+| Krach Lawn — delivery | **40.4280586** | **-86.9210457** |
+
+596 m apart: 589 m east, 96 m south.
+
+### What changed
+
+**The return leg was flying blind.** The outbound leg routed around obstacles;
+the return was a plain straight line home — same ground, same altitude, no
+route and no checking. Half of every delivery was unguarded. Both legs now go
+through one shared piece of code, so they cannot drift apart again.
+
+**The aircraft now refuses to move unless the way ahead is confirmed clear.**
+Previously a plan was made once and then trusted. A plan is a statement about
+the past: it was clear when the planner was asked. Three checks now run every
+tick, and any of them failing means it holds position instead of flying:
+
+- there is a current obstacle map (no map means no guarantee, so no flying);
+- a route exists (never having had one means the lidar, the planner or the map
+  is missing, and a straight line would be flown blind for the whole leg);
+- **the route is still clear right now**, re-tested against the live map, plus
+  the specific next step about to be commanded.
+
+**The obstacle map now understands altitude — this is the big one.** Nav2's map
+is 2D: it flattened every lidar return between 2 m and 40 m onto one plane, so
+a building was marked whether the aircraft flew at 5 m or at 35 m. Two bad
+consequences, both seen: the aircraft detoured around a low roof it would clear
+by 7 m, and — worse — it ended up *inside* the flat footprint of a building
+taller than its own altitude, where every direction including its own position
+read as blocked, so it hovered until the leg timed out.
+
+A new filter now cuts the lidar to a band around the aircraft's own height
+before the map ever sees it. A building that rises through the flight level
+still marks, because its wall is right there; a low roof underneath does not.
+The 2D map now means "things at my level", which is a question a 2D map can
+answer honestly.
+
+**A blocked hold can no longer deadlock.** If a hold does not clear within
+10 seconds the aircraft climbs to get above the obstruction. Height is the one
+direction reliably clearer than where you are, and with an altitude-aware map
+climbing genuinely shows the route clearing.
+
+**The transit deadline now scales with distance.** A fixed 300 s cannot serve
+both a 100 m hop and a 600 m leg. The 596 m route timed out 58 m short having
+flown 520 m perfectly well — the leg was fine, the clock was wrong.
+
+### Two bugs found the hard way
+
+**The transform tree was flat, and it silently broke the new filter.** The
+aircraft's height was never published: `base_footprint` is the ground
+projection so its height is correctly zero, and the link from there to the
+aircraft body was a *static identity*, so nothing in the system could answer
+"how high am I?". Nothing minded while every consumer was 2D. The moment the
+new filter asked, it got "on the ground, always", kept only returns near ground
+level, left the map empty — and the new refuse-to-fly-unconfirmed rule
+correctly grounded the mission. **Observed as: the aircraft lifted off and
+landed again in the same place.** The height is now published where it belongs.
+
+This also means **the 3D map described in the previous entry was wrong** — it
+placed every scan at ground level regardless of altitude. It looked plausible
+and was not. Corrected by the same fix.
+
+**A launch setting was accepted and silently ignored.** `transit_timeout_sec`
+was passed on the command line to a launch file that never declared it. No
+error, no warning, and the default was used — which is what caused the timeout
+above. The mission timings are now declared properly.
+
+### Hardware impact
+
+- **The altitude filter is what makes obstacle avoidance sane on a real
+  aircraft.** Its band is 2.5 m below to 6 m above the aircraft, asymmetric on
+  purpose: missing something you are about to climb into is the failure that
+  matters, clearing something below you by a few metres is the case that should
+  be allowed. Those numbers are parameters — revisit them against the real
+  airframe and the Mid-360's actual mounting angle.
+- **The filter has a hard floor 1.5 m above the launch elevation**, so the
+  ground does not fill the map during takeoff and landing. If the pad is not
+  level with the surrounding terrain, that floor needs checking.
+- **`MAX_RANGE_M` in `docker/.env` is 500 m** and this route is 596 m —
+  preflight will refuse it as out of range, correctly. Raise it deliberately
+  for a long route rather than by reflex.
+- Nothing here changes the outstanding hardware tasks.
+
+### How it was verified
+
+Full mission flown in simulation, IM Gold Fields to Krach Lawn and back, with
+2D and 3D mapping and three RViz windows. **596 m out, 596 m back, no
+failsafe:**
+
+```
+TRANSIT: 595 m to go ... 14 m to go  ->  DELIVER
+RETURN:  585 m to go ...  18 m to go  ->  SEARCH -> LAND
+Touchdown: commanding descent at 0.20 m/s but stopped descending
+at 0.13 m for 3.0 s — disarmed. Mission complete.
+```
+
+- **Altitude filter tracked the aircraft**: on the ground, band 1.5-6.1 m,
+  0 of 1273 returns kept — no ground clutter in the map. At transit altitude,
+  band 12.5-21.0 m, 18-74 of ~130 returns kept.
+- **Obstacle avoidance exercised**: the world has a 25 m building and an 8 m
+  building placed dead on the straight line between the two points. The
+  aircraft completed both legs without ever holding for an obstacle, which
+  means it routed around the tall one. The single hold in the whole flight was
+  "waiting for a Nav2 route" at the very start, before the first plan arrived.
+- **Prune fix confirmed**: the 3D map reached its 400,000-voxel cap and 88,748
+  of those read as occupied — 22%. Under the previous policy, which kept the
+  highest values, the cap would have been filled almost entirely with occupied
+  voxels because free space is stored as negative. Most of the map surviving as
+  confident *free* space is the fix working.
+
+### Risks still open
+
+- The 8 m building should now be flown straight over rather than detoured
+  around. The flight completed without holding either way, so this run shows
+  the aircraft was not blocked by it — but it does not prove no detour
+  happened. Comparing the flown track against the straight line would settle
+  it.
+- The mid-air disarm risk in the touchdown logic is **unchanged and still the
+  top item** blocking a first flight.
+- The escape-by-climbing behaviour has not been exercised: nothing blocked long
+  enough to trigger it this run.
+
+---
+
 ## 2026-09-02 (later) — 3D mapping, in its own window
 
 **In one sentence:** the aircraft now also builds a **3D** map of everything

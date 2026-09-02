@@ -61,6 +61,9 @@ def generate_launch_description():
         DeclareLaunchArgument('max_altitude_m', default_value='40.0'),
         DeclareLaunchArgument('max_range_m', default_value='2000.0'),
         DeclareLaunchArgument('require_plan_to_transit', default_value='true'),
+        DeclareLaunchArgument('transit_speed_mps', default_value='4.0'),
+        DeclareLaunchArgument('transit_timeout_sec', default_value='300.0'),
+        DeclareLaunchArgument('transit_timeout_margin', default_value='3.5'),
         DeclareLaunchArgument('record', default_value='false'),
         DeclareLaunchArgument('status_topic',
                               default_value='/fmu/out/vehicle_status_v2'),
@@ -101,24 +104,25 @@ def generate_launch_description():
         # odom -> base_footprint, driven by /fmu/out/vehicle_odometry.
         Node(package='drone_nav', executable='odom_publisher_broadcaster',
              name='odom_publisher_broadcaster', output='screen'),
-        # base_footprint -> base_link as a static identity.
+        # base_footprint -> base_link is published by
+        # odom_publisher_broadcaster, NOT here. It used to be a static
+        # identity, which pinned base_link at z = 0 and made the whole
+        # transform tree flat — see the comment in that node. Two publishers
+        # of one link is also a conflict in its own right.
         #
         # drone_nav's footprint_tf_broadcaster and stabilized_tf_broadcaster
-        # are deliberately NOT started. footprint_tf_broadcaster reads a PX4
-        # message whose definition no longer matches this firmware (DDS
+        # are still deliberately NOT started. footprint_tf_broadcaster reads a
+        # PX4 message whose definition no longer matches this firmware (DDS
         # rejects it: "payload size 168 > 167"), and stabilized_tf_broadcaster
-        # subscribes to demo/imu, a gazebo_ros topic that does not exist here
-        # for the same reason the depth camera does not. Both links would stay
-        # unpublished, leaving base_link undefined and Nav2 unable to plan.
-        #
-        # Identity is correct for our use: planning is 2D at transit altitude,
-        # so the ground-projection offset between the frames does not change
-        # the costmap footprint.
+        # subscribes to demo/imu, a gazebo_ros topic that does not exist here.
+
+        # --- flight-level filter (feeds the costmap) -----------------------
+        # Must run whenever Nav2 does: the costmap's obstacle source is this
+        # node's output, so without it the costmap simply stays empty.
         Node(
-            package='tf2_ros', executable='static_transform_publisher',
-            name='footprint_to_base_link',
-            arguments=['0', '0', '0', '0', '0', '0',
-                       'base_footprint', 'base_link'],
+            package='vision_landing', executable='flight_level_filter',
+            name='flight_level_filter', output='screen',
+            parameters=[{'use_sim_time': False}],
         ),
 
         # --- Nav2 planner (no controller_server, by design) ---------------
@@ -238,6 +242,10 @@ def generate_launch_description():
                 'max_range_m': LaunchConfiguration('max_range_m'),
                 'require_plan_to_transit':
                     LaunchConfiguration('require_plan_to_transit'),
+                'transit_speed_mps': LaunchConfiguration('transit_speed_mps'),
+                'transit_timeout_sec': LaunchConfiguration('transit_timeout_sec'),
+                'transit_timeout_margin':
+                    LaunchConfiguration('transit_timeout_margin'),
                 'record': LaunchConfiguration('record'),
                 'status_topic': LaunchConfiguration('status_topic'),
                 'local_position_topic': LaunchConfiguration('local_position_topic'),

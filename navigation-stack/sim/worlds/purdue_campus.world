@@ -65,8 +65,8 @@
          local/global_position_invalid. Set to the landing pad. -->
     <spherical_coordinates>
       <surface_model>EARTH_WGS84</surface_model>
-      <latitude_deg>40.4237</latitude_deg>
-      <longitude_deg>-86.9212</longitude_deg>
+      <latitude_deg>40.4289204</latitude_deg>
+      <longitude_deg>-86.9279914</longitude_deg>
       <elevation>187</elevation>
       <heading_deg>0</heading_deg>
     </spherical_coordinates>
@@ -126,39 +126,45 @@
     <!-- The campus mesh is deliberately absent. See the header. -->
 
 
-    <!-- Obstacles the lidar actually returns, straddling the transit corridor
-         from the pad at (0,0) to the delivery point ~108 m out on a bearing of
-         about 22 deg. Both are taller than the costmap's 2 m floor and shorter
-         than its 40 m ceiling, so they mark and clear correctly, and both sit
-         far enough from the pad not to interfere with the landing search.
+    <!-- Two obstacles straddling the transit corridor from the pad at (0,0)
+         to Krach Lawn, 596 m away. Gazebo x is local NORTH, y is local EAST,
+         so these sit at roughly one third and two thirds along the route.
 
-         A straight line to the delivery point passes through both. If the
-         aircraft flies straight through them, obstacle avoidance is not
-         working — that is the point of putting them here. -->
-    <model name="building_a">
+         They are DIFFERENT HEIGHTS on purpose, and that is the test:
+
+           building_tall  25 m — ABOVE the 15 m transit altitude. The aircraft
+                                 must route around it. If it flies through,
+                                 obstacle avoidance is not working.
+           building_low    8 m — BELOW the transit altitude. The aircraft
+                                 should fly straight over it without detouring.
+                                 Before the costmap became altitude-aware this
+                                 was marked exactly like the tall one, and the
+                                 aircraft detoured around something it clears
+                                 by 7 m. -->
+    <model name="building_tall">
       <static>true</static>
-      <pose>35 10 12.5 0 0 0</pose>
+      <pose>-32 196 12.5 0 0 0</pose>
       <link name="link">
         <collision name="collision">
-          <geometry><box><size>30 30 25</size></box></geometry>
+          <geometry><box><size>40 40 25</size></box></geometry>
         </collision>
         <visual name="visual">
-          <geometry><box><size>30 30 25</size></box></geometry>
-          <material><ambient>0.4 0.4 0.45 1</ambient><diffuse>0.5 0.5 0.55 1</diffuse></material>
+          <geometry><box><size>40 40 25</size></box></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.50 0.50 0.55 1</diffuse></material>
         </visual>
       </link>
     </model>
 
-    <model name="building_b">
+    <model name="building_low">
       <static>true</static>
-      <pose>72 30 10 0 0 0</pose>
+      <pose>-64 392 4 0 0 0</pose>
       <link name="link">
         <collision name="collision">
-          <geometry><box><size>25 25 20</size></box></geometry>
+          <geometry><box><size>40 40 8</size></box></geometry>
         </collision>
         <visual name="visual">
-          <geometry><box><size>25 25 20</size></box></geometry>
-          <material><ambient>0.45 0.4 0.4 1</ambient><diffuse>0.55 0.5 0.5 1</diffuse></material>
+          <geometry><box><size>40 40 8</size></box></geometry>
+          <material><ambient>0.30 0.42 0.32 1</ambient><diffuse>0.38 0.54 0.40 1</diffuse></material>
         </visual>
       </link>
     </model>

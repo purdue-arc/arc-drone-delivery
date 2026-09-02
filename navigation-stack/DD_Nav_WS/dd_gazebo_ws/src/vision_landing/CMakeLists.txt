@@ -8,6 +8,7 @@ find_package(geometry_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(tf2 REQUIRED)
 find_package(vision_msgs REQUIRED)
 find_package(px4_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -55,6 +56,12 @@ ament_target_dependencies(costmap_to_cloud rclcpp nav_msgs sensor_msgs)
 add_executable(cloud_to_scan src/cloud_to_scan.cpp)
 ament_target_dependencies(cloud_to_scan rclcpp sensor_msgs)
 
+# Cuts the lidar cloud to the aircraft's own flight level before it reaches
+# Nav2's 2D costmap, so "obstacle" means "at my height" rather than "somewhere
+# between 2 and 40 m off the ground".
+add_executable(flight_level_filter src/flight_level_filter.cpp)
+ament_target_dependencies(flight_level_filter rclcpp sensor_msgs tf2_ros tf2)
+
 add_executable(nav2_path_bridge src/nav2_path_bridge.cpp)
 ament_target_dependencies(nav2_path_bridge rclcpp rclcpp_action nav2_msgs nav_msgs geometry_msgs)
 
@@ -71,6 +78,7 @@ install(TARGETS
   nav2_path_bridge
   costmap_to_cloud
   cloud_to_scan
+  flight_level_filter
   vio_node
   DESTINATION lib/${PROJECT_NAME}
 )

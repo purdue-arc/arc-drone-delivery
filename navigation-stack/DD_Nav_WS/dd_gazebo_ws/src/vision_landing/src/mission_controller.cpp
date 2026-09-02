@@ -13,6 +13,7 @@
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <nav_msgs/msg/path.hpp>
+#include <nav_msgs/msg/occupancy_grid.hpp>
 #include <cmath>
 
 #include "vision_landing/mission_math.hpp"
@@ -116,6 +117,17 @@ public:
     // descent happens over the address, not on the way in.
     descend_radius_m_   = static_cast<float>(declare_parameter("descend_radius_m", 1.0));
     transit_timeout_sec_= declare_parameter("transit_timeout_sec", 300.0);
+    // A FIXED transit timeout cannot serve both a 100 m hop and a 600 m leg.
+    // At 300 s the 596 m Purdue route timed out 58 m short of the delivery
+    // point, having flown 520 m perfectly well — the leg was fine, the clock
+    // was wrong. The deadline is therefore derived from the distance actually
+    // being flown, with transit_timeout_sec as a floor for short legs.
+    //
+    // The margin is large because the commanded speed is not the achieved
+    // speed: the aircraft chases a setpoint a few metres ahead and PX4 decides
+    // how fast to close it, which came out near 1.7 m/s for a 4 m/s command.
+    // A detour around an obstacle costs more still.
+    transit_timeout_margin_ = declare_parameter("transit_timeout_margin", 3.5);
     // Hover altitude for the winch drop. The aircraft stays here and lowers
     // the package; it never lands at the delivery address.
     winch_hover_height_m_ = static_cast<float>(declare_parameter("winch_hover_height_m", 12.0));
@@ -174,6 +186,41 @@ public:
     // Re-publish the carrot once the aircraft has closed this much ground.
     nav2_goal_refresh_m_ =
       static_cast<float>(declare_parameter("nav2_goal_refresh_m", 15.0));
+
+    // ── obstacle safety ─────────────────────────────────────────────────────
+    // The aircraft must not fly into anything the lidar has seen. Nav2 plans
+    // around obstacles, but a plan is a statement about the past: it was clear
+    // when the planner was asked. These checks re-test it continuously against
+    // the live costmap, and refuse to move when it no longer holds.
+    //
+    // Cost threshold on Nav2's published OccupancyGrid (0..100, -1 unknown).
+    // 90 catches both LETHAL and the INSCRIBED ring around it, so the aircraft
+    // keeps the inflation radius rather than shaving it.
+    obstacle_cost_threshold_ =
+      static_cast<int>(declare_parameter("obstacle_cost_threshold", 90));
+    // A costmap older than this is not evidence of anything.
+    costmap_stale_sec_ = declare_parameter("costmap_stale_sec", 5.0);
+    // Refuse to move at all when the costmap is missing or stale. This is the
+    // "never fly into a detected obstacle" guarantee: with no costmap there is
+    // nothing to check the path against, so there is no such guarantee, so the
+    // aircraft holds. Set false only for a deliberate no-lidar flight.
+    require_costmap_to_fly_ = declare_parameter("require_costmap_to_fly", true);
+    // How far ahead the committed segment is re-checked each tick.
+    lookahead_check_m_ =
+      static_cast<float>(declare_parameter("lookahead_check_m", 12.0));
+    // Escape from a hold that will not clear.
+    //
+    // Holding when the route is blocked is right, but holding FOREVER is not a
+    // mission. The 2026-09-02 flight found the deadlock: the aircraft ended up
+    // inside the 2D footprint of a building taller than its transit altitude,
+    // so every direction including its own position read lethal, and it hovered
+    // until the leg timed out. The costmap is altitude-aware now, which stops
+    // that arising — and climbing is the escape that works regardless, because
+    // gaining height genuinely clears a ground obstacle and an altitude-aware
+    // costmap will then show it clear.
+    blocked_escape_sec_ = declare_parameter("blocked_escape_sec", 10.0);
+    escape_climb_m_ =
+      static_cast<float>(declare_parameter("escape_climb_m", 5.0));
 
     // PX4 topic names.
     //
@@ -273,6 +320,15 @@ public:
     transit_path_sub_ = create_subscription<nav_msgs::msg::Path>(
       "/arc/transit/path", 10,
       std::bind(&MissionController::path_callback, this, std::placeholders::_1));
+    // The costmap itself, so a planned path can be CHECKED rather than
+    // trusted. Nav2 plans against the costmap it had when asked; between then
+    // and flying it, the lidar can reveal something new. Latched to match the
+    // costmap publisher.
+    costmap_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
+      declare_parameter<std::string>("costmap_topic",
+                                     "/global_costmap/costmap"),
+      rclcpp::QoS(1).transient_local(),
+      std::bind(&MissionController::costmap_callback, this, std::placeholders::_1));
 
     // Mission telemetry. Latched so an operator tool that attaches mid-flight
     // immediately learns the state instead of waiting for the next tick.
@@ -468,6 +524,91 @@ private:
     state_pub_->publish(msg);
   }
 
+  void costmap_callback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg)
+  {
+    costmap_ = *msg;
+    last_costmap_time_ = now();
+  }
+
+  bool costmap_fresh() const
+  {
+    return !costmap_.data.empty() &&
+           (now() - last_costmap_time_).seconds() < costmap_stale_sec_;
+  }
+
+  // Cost at a point given in mission NED. Returns -1 for "outside the map or
+  // unknown", which is NOT treated as an obstacle: the aircraft must not fly
+  // into what it HAS detected, and unobserved space is not a detection.
+  int cost_at(float north, float east) const
+  {
+    if (costmap_.data.empty()) return -1;
+    // Costmap is ENU in "map": x = east, y = north.
+    const double res = costmap_.info.resolution;
+    if (res <= 0.0) return -1;
+    const int cx = static_cast<int>(
+      std::floor((east  - costmap_.info.origin.position.x) / res));
+    const int cy = static_cast<int>(
+      std::floor((north - costmap_.info.origin.position.y) / res));
+    if (cx < 0 || cy < 0 ||
+        cx >= static_cast<int>(costmap_.info.width) ||
+        cy >= static_cast<int>(costmap_.info.height)) return -1;
+    return costmap_.data[cy * costmap_.info.width + cx];
+  }
+
+  bool point_blocked(float north, float east) const
+  {
+    const int c = cost_at(north, east);
+    return c >= obstacle_cost_threshold_;
+  }
+
+  // Walk a straight segment at costmap resolution. Sampling coarser than the
+  // cell size can step straight over a wall one cell thick.
+  bool segment_blocked(float n0, float e0, float n1, float e1,
+                       float * hit_n = nullptr, float * hit_e = nullptr) const
+  {
+    const double res = costmap_.info.resolution > 0.0 ? costmap_.info.resolution : 0.2;
+    const float len = std::hypot(n1 - n0, e1 - e0);
+    const int steps = std::max(1, static_cast<int>(std::ceil(len / (res * 0.5))));
+    for (int i = 0; i <= steps; ++i) {
+      const float f = static_cast<float>(i) / steps;
+      const float n = n0 + (n1 - n0) * f;
+      const float e = e0 + (e1 - e0) * f;
+      if (point_blocked(n, e)) {
+        if (hit_n) *hit_n = n;
+        if (hit_e) *hit_e = e;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Is the planned route still clear, from where we are to `horizon` metres
+  // along it? Checking the whole path every tick is wasted work — the far end
+  // will be re-planned several times before we reach it — but the part we are
+  // about to fly must be clear right now.
+  bool path_ahead_clear(float horizon, float * hit_n, float * hit_e) const
+  {
+    if (path_.poses.empty()) return true;
+    size_t best = 0;
+    double best_d = 1e18;
+    for (size_t i = 0; i < path_.poses.size(); ++i) {
+      const double pn = path_.poses[i].pose.position.y;
+      const double pe = path_.poses[i].pose.position.x;
+      const double d = std::hypot(pn - current_ned_x_, pe - current_ned_y_);
+      if (d < best_d) { best_d = d; best = i; }
+    }
+    float travelled = 0.0f;
+    for (size_t i = best; i + 1 < path_.poses.size() && travelled < horizon; ++i) {
+      const float n0 = static_cast<float>(path_.poses[i].pose.position.y);
+      const float e0 = static_cast<float>(path_.poses[i].pose.position.x);
+      const float n1 = static_cast<float>(path_.poses[i + 1].pose.position.y);
+      const float e1 = static_cast<float>(path_.poses[i + 1].pose.position.x);
+      if (segment_blocked(n0, e0, n1, e1, hit_n, hit_e)) return false;
+      travelled += std::hypot(n1 - n0, e1 - e0);
+    }
+    return true;
+  }
+
   void path_callback(const nav_msgs::msg::Path::SharedPtr msg)
   {
     if (msg->poses.empty()) return;
@@ -632,6 +773,127 @@ private:
     // Near the end of the path — aim at its last pose.
     nx = static_cast<float>(path_.poses.back().pose.position.y);
     ny = static_cast<float>(path_.poses.back().pose.position.x);
+    return true;
+  }
+
+  // One guided leg, used by BOTH the outbound transit and the return.
+  //
+  // The return used to be a plain straight line home while the outbound leg
+  // routed around obstacles — so exactly half the flight was unguarded, over
+  // the same ground, in the same world. Both legs now go through here.
+  //
+  // Returns true if the aircraft was commanded to move. False means it is
+  // holding position on purpose, and the caller must not command anything
+  // else: the reason it is holding is that moving is not known to be safe.
+  bool fly_guided_leg(float tgt_n, float tgt_e, float tgt_z, const char * leg)
+  {
+    const float dx = tgt_n - current_ned_x_;
+    const float dy = tgt_e - current_ned_y_;
+    const float dist = std::max(std::hypot(dx, dy), 1e-3f);
+
+    // Hold in place, and if the hold does not clear, climb out of it.
+    const auto hold = [&](const char * why) {
+      if (blocked_since_.nanoseconds() == 0) blocked_since_ = now();
+      const double held = (now() - blocked_since_).seconds();
+
+      float hold_z = tgt_z;
+      if (held > blocked_escape_sec_) {
+        // Climb, capped by the companion-side altitude fence. Height is the
+        // one direction that is reliably clearer than where we are: the
+        // obstacle is on the ground and we are above it.
+        const float want = height_above_home() + escape_climb_m_;
+        const float capped = std::min(want, max_altitude_m_ - 1.0f);
+        hold_z = home_z_ - capped;
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 3000,
+          "%s: blocked %.0f s — climbing to %.1f m to get above it (%s)",
+          leg, held, capped, why);
+      } else {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+          "%s: HOLDING — %s", leg, why);
+      }
+      publish_setpoint(current_ned_x_, current_ned_y_, hold_z, current_heading_);
+    };
+
+    if (use_nav2_) {
+      // 1. Keep the planner aimed, clamped into its rolling window.
+      const float moved = std::hypot(current_ned_x_ - last_goal_pub_x_,
+                                     current_ned_y_ - last_goal_pub_y_);
+      if (!transit_goal_sent_ || moved > nav2_goal_refresh_m_) {
+        float gx = tgt_n, gy = tgt_e;
+        if (dist > nav2_goal_max_range_m_) {
+          gx = current_ned_x_ + (dx / dist) * nav2_goal_max_range_m_;
+          gy = current_ned_y_ + (dy / dist) * nav2_goal_max_range_m_;
+        }
+        publish_transit_goal(gx, gy);
+        transit_goal_sent_ = true;
+        last_goal_pub_x_ = current_ned_x_;
+        last_goal_pub_y_ = current_ned_y_;
+      }
+
+      // 2. No costmap means nothing to check a route against, so there is no
+      //    obstacle guarantee to be had. Hold rather than guess.
+      if (require_costmap_to_fly_ && !costmap_fresh()) {
+        hold("no fresh costmap — cannot confirm the route is clear");
+        return false;
+      }
+
+      // 3. A plan must exist. Never having had one means the planner, the
+      //    costmap or the lidar is absent, and a straight line would be flown
+      //    blind for the whole leg.
+      float aim_n = tgt_n, aim_e = tgt_e;
+      const bool planned = path_fresh() && path_carrot(aim_n, aim_e);
+      if (planned) ever_planned_ = true;
+      if (!planned) {
+        if (require_plan_to_transit_) {
+          hold("waiting for a Nav2 route");
+          return false;
+        }
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+          "%s: no fresh Nav2 plan — flying straight line (obstacles NOT avoided)",
+          leg);
+      }
+
+      // 4. The plan was clear when it was made. Re-check it against the
+      //    costmap as it is NOW, out to the lookahead. This is what makes
+      //    "never fly into a detected obstacle" true rather than hoped for.
+      float hn = 0.0f, he = 0.0f;
+      if (planned && !path_ahead_clear(lookahead_check_m_, &hn, &he)) {
+        transit_goal_sent_ = false;      // force an immediate replan
+        char why[160];
+        std::snprintf(why, sizeof(why),
+          "planned route is blocked at NED (%.1f, %.1f) — replanning", hn, he);
+        hold(why);
+        return false;
+      }
+
+      // 5. And the specific step about to be commanded.
+      float sn = current_ned_x_ + (aim_n - current_ned_x_);
+      float se = current_ned_y_ + (aim_e - current_ned_y_);
+      if (segment_blocked(current_ned_x_, current_ned_y_, sn, se, &hn, &he)) {
+        transit_goal_sent_ = false;
+        char why[160];
+        std::snprintf(why, sizeof(why),
+          "next step crosses an obstacle at NED (%.1f, %.1f)", hn, he);
+        hold(why);
+        return false;
+      }
+
+      const float adx = aim_n - current_ned_x_;
+      const float ady = aim_e - current_ned_y_;
+      const float adist = std::max(std::hypot(adx, ady), 1e-3f);
+      const float carrot = std::min(transit_speed_mps_ * TICK_SEC * 20.0f, adist);
+      publish_setpoint(current_ned_x_ + (adx / adist) * carrot,
+                       current_ned_y_ + (ady / adist) * carrot,
+                       tgt_z, std::atan2(ady, adx));
+      blocked_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+      return true;
+    }
+
+    // use_nav2 disabled: the operator has explicitly accepted an unguided leg.
+    const float carrot = std::min(transit_speed_mps_ * TICK_SEC * 20.0f, dist);
+    publish_setpoint(current_ned_x_ + (dx / dist) * carrot,
+                     current_ned_y_ + (dy / dist) * carrot,
+                     tgt_z, std::atan2(dy, dx));
     return true;
   }
 
@@ -957,10 +1219,15 @@ private:
           const float dx = delivery_ned_x_ - home_x_;
           const float dy = delivery_ned_y_ - home_y_;
           delivery_range_m_ = std::sqrt(dx * dx + dy * dy);
+          transit_deadline_sec_ = std::max(
+            transit_timeout_sec_,
+            static_cast<double>(delivery_range_m_) /
+              std::max(0.5f, transit_speed_mps_) * transit_timeout_margin_);
           RCLCPP_INFO(get_logger(),
-            "Delivery to (%.7f, %.7f) — NED (%.1f, %.1f), %.0f m away",
+            "Delivery to (%.7f, %.7f) — NED (%.1f, %.1f), %.0f m away "
+            "(allowing %.0f s per leg)",
             delivery_lat_, delivery_lon_, delivery_ned_x_, delivery_ned_y_,
-            delivery_range_m_);
+            delivery_range_m_, transit_deadline_sec_);
         } else {
           RCLCPP_INFO(get_logger(),
             "No delivery waypoint — search-and-land at the launch point");
@@ -1066,84 +1333,37 @@ private:
             dist);
           break;
         }
-        if (transit_ticks_ * TICK_SEC > transit_timeout_sec_) {
+        if (transit_ticks_ * TICK_SEC > transit_deadline_sec_) {
           RCLCPP_ERROR(get_logger(),
-            "TRANSIT timeout %.0f m short — failsafe landing", dist);
+            "TRANSIT timeout after %.0f s, %.0f m short — failsafe landing",
+            transit_deadline_sec_, dist);
           enter_failsafe_land("transit_timeout");
           break;
         }
 
-        // Publish the goal on entry and then only as the aircraft closes
-        // ground, not every tick: nav2_path_bridge replans on its own timer,
-        // and re-sending at 20 Hz swamped the planner and starved it of the
-        // chance to actually return a path.
-        //
-        // The goal is clamped into the costmap's rolling window (see
-        // nav2_goal_max_range_m) — an unclamped far goal is rejected outright
-        // and no plan is ever produced.
-        if (use_nav2_) {
-          const float moved = std::hypot(current_ned_x_ - last_goal_pub_x_,
-                                         current_ned_y_ - last_goal_pub_y_);
-          if (!transit_goal_sent_ || moved > nav2_goal_refresh_m_) {
-            float gx = delivery_ned_x_, gy = delivery_ned_y_;
-            if (dist > nav2_goal_max_range_m_) {
-              gx = current_ned_x_ + (dx / dist) * nav2_goal_max_range_m_;
-              gy = current_ned_y_ + (dy / dist) * nav2_goal_max_range_m_;
-              RCLCPP_INFO(get_logger(),
-                "Nav2 goal clamped to %.0f m ahead (delivery is %.0f m out, "
-                "beyond the costmap window)", nav2_goal_max_range_m_, dist);
-            }
-            publish_transit_goal(gx, gy);
-            transit_goal_sent_ = true;
-            last_goal_pub_x_ = current_ned_x_;
-            last_goal_pub_y_ = current_ned_y_;
-          }
-        }
+        // Everything about steering this leg — keeping the planner aimed,
+        // demanding a route, and re-checking that route against the live
+        // costmap — lives in fly_guided_leg, so the outbound and return legs
+        // cannot drift apart in how carefully they fly.
+        const bool moving =
+          fly_guided_leg(delivery_ned_x_, delivery_ned_y_, tgt_z, "TRANSIT");
 
-        // Steer toward the planned path when it is fresh, otherwise straight
-        // at the destination. Falling back rather than stalling keeps a
-        // planner outage from stranding the aircraft mid-transit.
-        float aim_x = delivery_ned_x_, aim_y = delivery_ned_y_;
-        const bool planned = path_fresh() && path_carrot(aim_x, aim_y);
-        if (planned) ever_planned_ = true;
-
-        // Never having received a plan is not a hiccup: it means the planner,
-        // the costmap or the lidar is missing, and the whole transit would be
-        // a blind straight line. Hold at the launch point until one arrives,
-        // then give up rather than fly it unguarded.
-        if (use_nav2_ && require_plan_to_transit_ && !ever_planned_) {
-          publish_setpoint(home_x_, home_y_, tgt_z, current_heading_);
-          if (transit_ticks_ * TICK_SEC > plan_wait_timeout_sec_) {
+        if (!moving) {
+          // Held for a reason fly_guided_leg has already logged. The only
+          // thing to add is giving up if it never clears.
+          if (transit_ticks_ * TICK_SEC > plan_wait_timeout_sec_ && !ever_planned_) {
             RCLCPP_ERROR(get_logger(),
-              "No Nav2 plan after %.0f s — refusing to transit unguarded. "
-              "Check the lidar driver is publishing and the costmap is filling; "
-              "set require_plan_to_transit:=false to fly the straight line anyway.",
+              "No Nav2 route after %.0f s — refusing to transit unguarded. "
+              "Check the lidar is publishing and the costmap is filling; set "
+              "require_plan_to_transit:=false to fly the straight line anyway.",
               plan_wait_timeout_sec_);
             enter_failsafe_land("no_obstacle_plan");
-          } else {
-            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
-              "Holding at launch: waiting for the first Nav2 plan (%.0f/%.0f s)",
-              transit_ticks_ * TICK_SEC, plan_wait_timeout_sec_);
           }
           break;
         }
-        if (use_nav2_ && !planned) {
-          RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
-            "No fresh Nav2 plan — flying straight line (obstacles NOT avoided)");
-        }
-
-        float adx = aim_x - current_ned_x_;
-        float ady = aim_y - current_ned_y_;
-        const float adist = std::max(std::sqrt(adx * adx + ady * ady), 1e-3f);
-        const float step = transit_speed_mps_ * TICK_SEC;
-        const float carrot = std::min(step * 20.0f, adist);   // ~1 s lookahead
-        publish_setpoint(current_ned_x_ + (adx / adist) * carrot,
-                         current_ned_y_ + (ady / adist) * carrot,
-                         tgt_z, std::atan2(ady, adx));
 
         RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000,
-          "TRANSIT: %.0f m to go, alt=%.1f m, %s", dist, height_above_home(),
-          planned ? "following Nav2 plan" : "straight line");
+          "TRANSIT: %.0f m to go, alt=%.1f m", dist, height_above_home());
         break;
       }
 
@@ -1330,6 +1550,10 @@ private:
         } else if (winch_state_ == "stowed" && winch_started_) {
           delivered_ = true;
           transit_ticks_ = 0;
+          // Force the planner to re-aim at home; otherwise it would keep
+          // planning to the delivery point we are standing on.
+          transit_goal_sent_ = false;
+          ever_planned_ = false;
           transition(State::RETURN);
           RCLCPP_INFO(get_logger(),
             "Package delivered and winch stowed — RETURN to launch");
@@ -1411,21 +1635,22 @@ private:
           RCLCPP_INFO(get_logger(), "Home reached (%.2f m) — landing", dist);
           break;
         }
-        if (transit_ticks_ * TICK_SEC > transit_timeout_sec_) {
+        if (transit_ticks_ * TICK_SEC > transit_deadline_sec_) {
           RCLCPP_ERROR(get_logger(),
-            "RETURN timeout %.0f m short — failsafe landing", dist);
+            "RETURN timeout after %.0f s, %.0f m short — failsafe landing",
+            transit_deadline_sec_, dist);
           enter_failsafe_land("return_timeout");
           break;
         }
 
-        const float step = transit_speed_mps_ * TICK_SEC;
-        const float ux = dx / dist, uy = dy / dist;
-        const float carrot = std::min(step * 20.0f, dist);
-        publish_setpoint(current_ned_x_ + ux * carrot,
-                         current_ned_y_ + uy * carrot, tgt_z,
-                         std::atan2(dy, dx));
+        // The return is flown exactly as carefully as the outbound leg. It
+        // used to be a bare straight line home — the same obstacles, the same
+        // altitude, no route and no checking — which meant half of every
+        // delivery was unguarded.
+        if (!fly_guided_leg(home_x_, home_y_, tgt_z, "RETURN")) break;
+
         RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000,
-          "RETURN: %.0f m to go", dist);
+          "RETURN: %.0f m to go, alt=%.1f m", dist, height_above_home());
         break;
       }
 
@@ -1594,11 +1819,21 @@ private:
   float  transit_height_m_, transit_speed_mps_, transit_accept_m_;
   float  descend_radius_m_;
   double transit_timeout_sec_, release_settle_sec_;
+  double transit_timeout_margin_, transit_deadline_sec_ = 300.0;
   float  winch_hover_height_m_, max_range_m_;
   float  max_altitude_m_;
   double winch_secure_timeout_sec_;
   bool   require_plan_to_transit_;
   double plan_wait_timeout_sec_;
+  int    obstacle_cost_threshold_;
+  double costmap_stale_sec_;
+  bool   require_costmap_to_fly_;
+  float  lookahead_check_m_;
+  double blocked_escape_sec_;
+  float  escape_climb_m_;
+  rclcpp::Time blocked_since_{0, 0, RCL_ROS_TIME};
+  nav_msgs::msg::OccupancyGrid costmap_;
+  rclcpp::Time last_costmap_time_{0, 0, RCL_ROS_TIME};
   float  nav2_goal_max_range_m_, nav2_goal_refresh_m_;
   float  gimbal_settle_rad_, gimbal_verify_min_rad_;
   double gimbal_status_stale_sec_;
@@ -1686,6 +1921,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr                winch_state_sub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr         transit_goal_pub_;
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr                  transit_path_sub_;
+  rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr         costmap_sub_;
   rclcpp::Publisher<px4_msgs::msg::TrajectorySetpoint>::SharedPtr       setpoint_pub_;
   rclcpp::Publisher<px4_msgs::msg::OffboardControlMode>::SharedPtr      offboard_pub_;
   rclcpp::Publisher<px4_msgs::msg::VehicleCommand>::SharedPtr           command_pub_;

@@ -193,13 +193,18 @@ local_costmap:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
         # LAYER-level gate, separate from the per-source one below. It defaults
-        # to 2.0 m and silently drops every point above that — which, combined
-        # with the source's min_obstacle_height of 2.0, rejected literally
-        # every return and left the costmap empty. Both must be set.
-        max_obstacle_height: 40.0
+        # to 2.0 m and silently drops every point above that, so it must be set
+        # even though the real filtering is now upstream in
+        # flight_level_filter. Wide open for the same reason as below.
+        max_obstacle_height: 100.0
         observation_sources: livox
         livox:
-          topic: /livox/points
+          # The FLIGHT-LEVEL filtered cloud, not the raw lidar. A 2D costmap
+          # cannot say "that is below me and I will clear it", so the filtering
+          # happens before the map: only returns near the aircraft's own
+          # altitude arrive here. See vision_landing/src/flight_level_filter.cpp
+          # for what that fixes and what it cost to learn.
+          topic: /livox/points_flight_level
           data_type: "PointCloud2"
           marking: true
           clearing: true
@@ -207,15 +212,13 @@ local_costmap:
           obstacle_min_range: 0.5
           raytrace_max_range: 35.0
           raytrace_min_range: 0.5
-          # Heights are in the costmap's global frame (map), where z=0 is
-          # ground at the launch point. The Mid-360 looks 7 deg down, so it
-          # always paints the ground — which filled the costmap with false
-          # obstacles whenever the aircraft was low and truncated every plan.
-          # Ignoring everything below 2 m removes the ground return in every
-          # flight phase, landed or cruising, while still seeing buildings,
-          # poles and trees, which is what matters at transit altitude.
-          min_obstacle_height: 2.0
-          max_obstacle_height: 40.0
+          # Wide open ON PURPOSE. Height filtering has moved upstream into
+          # flight_level_filter, which cuts the band relative to the
+          # AIRCRAFT rather than to the ground. Re-applying a fixed 2..40 m
+          # window here would put the old altitude-blind behaviour straight
+          # back on top of it.
+          min_obstacle_height: -100.0
+          max_obstacle_height: 100.0
           # The bridge emits inf for "no return"; treat it as free space to
           # raytrace through, not as an obstacle at max range.
           inf_is_valid: true
@@ -262,13 +265,18 @@ global_costmap:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
         # LAYER-level gate, separate from the per-source one below. It defaults
-        # to 2.0 m and silently drops every point above that — which, combined
-        # with the source's min_obstacle_height of 2.0, rejected literally
-        # every return and left the costmap empty. Both must be set.
-        max_obstacle_height: 40.0
+        # to 2.0 m and silently drops every point above that, so it must be set
+        # even though the real filtering is now upstream in
+        # flight_level_filter. Wide open for the same reason as below.
+        max_obstacle_height: 100.0
         observation_sources: livox
         livox:
-          topic: /livox/points
+          # The FLIGHT-LEVEL filtered cloud, not the raw lidar. A 2D costmap
+          # cannot say "that is below me and I will clear it", so the filtering
+          # happens before the map: only returns near the aircraft's own
+          # altitude arrive here. See vision_landing/src/flight_level_filter.cpp
+          # for what that fixes and what it cost to learn.
+          topic: /livox/points_flight_level
           data_type: "PointCloud2"
           marking: true
           clearing: true
@@ -276,15 +284,13 @@ global_costmap:
           obstacle_min_range: 0.5
           raytrace_max_range: 35.0
           raytrace_min_range: 0.5
-          # Heights are in the costmap's global frame (map), where z=0 is
-          # ground at the launch point. The Mid-360 looks 7 deg down, so it
-          # always paints the ground — which filled the costmap with false
-          # obstacles whenever the aircraft was low and truncated every plan.
-          # Ignoring everything below 2 m removes the ground return in every
-          # flight phase, landed or cruising, while still seeing buildings,
-          # poles and trees, which is what matters at transit altitude.
-          min_obstacle_height: 2.0
-          max_obstacle_height: 40.0
+          # Wide open ON PURPOSE. Height filtering has moved upstream into
+          # flight_level_filter, which cuts the band relative to the
+          # AIRCRAFT rather than to the ground. Re-applying a fixed 2..40 m
+          # window here would put the old altitude-blind behaviour straight
+          # back on top of it.
+          min_obstacle_height: -100.0
+          max_obstacle_height: 100.0
           inf_is_valid: true
           expected_update_rate: 0.0
       unused_static_layer:

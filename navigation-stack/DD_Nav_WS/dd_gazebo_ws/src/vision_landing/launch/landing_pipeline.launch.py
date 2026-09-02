@@ -109,6 +109,17 @@ def generate_launch_description():
                         'it is the only post-flight record of WHY the '
                         'controller did what the PX4 log shows it doing.'),
         DeclareLaunchArgument('bag_dir', default_value='mission_bag'),
+        # Mission timings. Declared HERE so they can actually be set: passing
+        # transit_timeout_sec:= to a launch file that never declared it is
+        # accepted in silence and ignored, which cost a 596 m flight that
+        # timed out 58 m short on a default nobody meant to be using.
+        DeclareLaunchArgument('transit_speed_mps', default_value='4.0'),
+        DeclareLaunchArgument(
+            'transit_timeout_sec', default_value='300.0',
+            description='FLOOR for the per-leg deadline. The actual deadline '
+                        'scales with the distance being flown — see '
+                        'transit_timeout_margin.'),
+        DeclareLaunchArgument('transit_timeout_margin', default_value='3.5'),
 
         # PX4 topic names.
         #
@@ -182,6 +193,12 @@ def generate_launch_description():
                     LaunchConfiguration('winch_hover_height_m'), value_type=float),
                 'max_altitude_m': ParameterValue(
                     LaunchConfiguration('max_altitude_m'), value_type=float),
+                'transit_speed_mps': ParameterValue(
+                    LaunchConfiguration('transit_speed_mps'), value_type=float),
+                'transit_timeout_sec': ParameterValue(
+                    LaunchConfiguration('transit_timeout_sec'), value_type=float),
+                'transit_timeout_margin': ParameterValue(
+                    LaunchConfiguration('transit_timeout_margin'), value_type=float),
                 'max_range_m': ParameterValue(
                     LaunchConfiguration('max_range_m'), value_type=float),
                 'require_plan_to_transit': ParameterValue(

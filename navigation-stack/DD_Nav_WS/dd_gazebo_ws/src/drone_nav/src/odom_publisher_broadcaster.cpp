@@ -98,9 +98,49 @@ void OdomPublisherBroadcaster::pos_sub_callback(const std::shared_ptr<px4_msgs::
     transform.transform.rotation.w = q_new.w();
 
 
-    //Publishing the ros2 compatible odom msg and odom->base_footprint transform
+    // base_footprint -> base_link: the aircraft's HEIGHT above its ground
+    // projection. That is what distinguishes the two frames (REP 105), and
+    // until now it was published elsewhere as a static identity, which left
+    // base_link permanently at z = 0 and the whole transform tree flat.
+    //
+    // Nothing minded while every consumer was 2D. The moment anything asks
+    // "how high is the aircraft?" through TF — the 3D mapper, and the
+    // flight-level filter that decides which lidar returns can be hit — a
+    // flat tree answers "on the ground", always. The filter then kept only
+    // returns in a band around ground level, the costmap stayed empty, and
+    // the mission refused to fly because it could not confirm a clear route.
+    //
+    // enu_position.z() is already the altitude; it was simply being dropped.
+    geometry_msgs::msg::TransformStamped height;
+    height.header.stamp    = time;
+    height.header.frame_id = "base_footprint";
+    height.child_frame_id  = "base_link";
+    height.transform.translation.x = 0.0;
+    height.transform.translation.y = 0.0;
+    height.transform.translation.z = enu_position.z();
+    // Roll and pitch live here too: base_footprint is levelled by
+    // construction (only yaw above), so the airframe's actual attitude
+    // belongs on this link. A 3D map built without it smears every scan
+    // taken in a banked turn.
+    height.transform.rotation.x = enu_flu_q.x();
+    height.transform.rotation.y = enu_flu_q.y();
+    height.transform.rotation.z = enu_flu_q.z();
+    height.transform.rotation.w = enu_flu_q.w();
+    // base_footprint already carries yaw, so remove it here to avoid
+    // applying it twice.
+    tf2::Quaternion q_yaw_only;
+    q_yaw_only.setRPY(0.0, 0.0, yaw);
+    tf2::Quaternion q_full(enu_flu_q.x(), enu_flu_q.y(), enu_flu_q.z(), enu_flu_q.w());
+    tf2::Quaternion q_rel = q_yaw_only.inverse() * q_full;
+    height.transform.rotation.x = q_rel.x();
+    height.transform.rotation.y = q_rel.y();
+    height.transform.rotation.z = q_rel.z();
+    height.transform.rotation.w = q_rel.w();
+
+    //Publishing the ros2 compatible odom msg and both transforms
     publisher_->publish(odom_msg);
     tf_broadcaster_->sendTransform(transform);
+    tf_broadcaster_->sendTransform(height);
 }
 
 
