@@ -1,5 +1,7 @@
 # Docker setup for arc-drone-delivery
 
+> Deployment changes are logged in [CHANGELOG.md](../CHANGELOG.md).
+
 Three-container layout running ROS 2 Jazzy on Ubuntu 24.04, designed to work
 on both the dev machine (amd64) and Jetson Orin Nano (arm64) running JetPack
 6.2 (Ubuntu 22.04 host).

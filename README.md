@@ -4,7 +4,18 @@ This is the unified monorepo for Purdue's Autonomous Robotics Club (ARC) Drone D
 
 ## 📄 Documentation
 
-Please refer to the `Documentation` folder for project docs, guides, and technical references.
+**[CHANGELOG.md](CHANGELOG.md) — start here.** One running record of every
+significant change to the flight software, written to be readable without a
+software background. Every entry says what changed, why, **what the hardware
+team must do about it**, and what was actually tested rather than assumed. It
+also carries the current "can we fly this yet?" status and the list of things
+blocking a first flight.
+
+Add an entry there whenever you change what the aircraft does. The template
+and the major/minor rule are at the top of that file.
+
+Please refer to the `Documentation` folder for other project docs, guides, and
+technical references.
 
 ## 📁 Repository Structure
 
@@ -207,8 +218,9 @@ publishes to `/arc/mission/start` (`make start`). See
 
 ### Flight readiness
 
-The full delivery mission has **not yet run end to end**, in SITL or on
-hardware. Before a first powered test:
+The full delivery mission now runs end to end **in simulation** (2026-09-01).
+Nothing in the stack has run on hardware. See [CHANGELOG.md](CHANGELOG.md) for
+the current status and the full history. Before a first powered test:
 
 - [x] Container build and launch path works (`make up-sitl` / `make up-hw`)
 - [x] PX4 topic names pinned to the firmware, and checkable (`make check-px4-topics`)
@@ -224,6 +236,12 @@ hardware. Before a first powered test:
 - [ ] **Gimbal sweep verified** against a protractor, props off
 - [ ] **ZED calibration generated** and `CALIB_FILE` set — perception now
       refuses to start without it
+- [x] Full mission flown end to end in SITL — takeoff, transit with obstacle
+      avoidance, winch drop, return, tag search, precision landing, disarm
+- [ ] **Resolve the mid-air disarm risk in the touchdown logic** — see the
+      2026-09-01 CHANGELOG entry, "Risks still open"
+- [ ] Failsafe exercised *during* a winch drop in SITL (`SECURE_PAYLOAD` has
+      never run)
 - [ ] Full mission flown repeatedly in SITL
 
 `config/px4/README.md` lists the bench tests these imply.

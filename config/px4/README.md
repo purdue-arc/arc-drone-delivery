@@ -1,5 +1,9 @@
 # PX4 parameters — the other half of the flight software
 
+> Changes to these are logged in [CHANGELOG.md](../../CHANGELOG.md), which
+> carries a **Hardware impact** section in every entry. Read that first if you
+> are picking the aircraft up after someone else worked on it.
+
 Everything in `navigation-stack/` and `landing/` is only half the aircraft. The
 other half lives in the flight controller's parameter storage, and until this
 directory existed it was not written down anywhere: the gimbal routing, the AUX

@@ -1,0 +1,46 @@
+#!/bin/bash
+# Warn — never block — when flight software changes without a CHANGELOG entry.
+#
+# Enable:
+#   ln -sf ../../scripts/hooks/pre-commit-changelog .git/hooks/pre-commit
+#   chmod +x scripts/hooks/pre-commit-changelog
+#
+# Bypass for a genuinely minor commit:
+#   git commit --no-verify
+#
+# This deliberately exits 0 in every case. A hook that blocks commits gets
+# disabled within a week and then the log rots silently, which is worse than
+# an occasional missed entry.
+
+staged=$(git diff --cached --name-only)
+
+# Paths that carry flight behaviour. Docs and tests are not on this list.
+flight_changed=$(echo "$staged" | grep -E \
+  '^(navigation-stack/DD_Nav_WS/dd_gazebo_ws/src/(vision_landing|drone_nav)/(src|launch|config)/|landing/zed_apriltag_streaming/src/|docker/|config/px4/|navigation-stack/sim/worlds/|Makefile$)' \
+  | grep -vE '\.md$|/test/')
+
+changelog_changed=$(echo "$staged" | grep -c '^CHANGELOG\.md$')
+
+if [ -n "$flight_changed" ] && [ "$changelog_changed" -eq 0 ]; then
+    echo ""
+    echo "  ┌────────────────────────────────────────────────────────────┐"
+    echo "  │  Flight software changed, but CHANGELOG.md did not.        │"
+    echo "  └────────────────────────────────────────────────────────────┘"
+    echo ""
+    echo "  Staged files that carry flight behaviour:"
+    echo "$flight_changed" | sed 's/^/    /'
+    echo ""
+    echo "  If this is a MAJOR change — anything that alters what the aircraft"
+    echo "  does, adds or renames a parameter or topic, changes what hardware"
+    echo "  must be set or wired, or fixes a bug that could have caused a bad"
+    echo "  flight — add an entry at the top of CHANGELOG.md's Entries section."
+    echo "  The template is near the top of that file."
+    echo ""
+    echo "  Remember the Hardware impact section. Write 'None.' if there is"
+    echo "  none; do not leave it blank."
+    echo ""
+    echo "  Minor change? Commit again — this is only a warning."
+    echo ""
+fi
+
+exit 0
