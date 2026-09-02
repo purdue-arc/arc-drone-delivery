@@ -70,6 +70,13 @@ def generate_launch_description():
         DeclareLaunchArgument('land_detected_topic',
                               default_value='/fmu/out/vehicle_land_detected'),
         DeclareLaunchArgument(
+            'slam', default_value='false',
+            description='Build a 2D occupancy map from the lidar while flying. '
+                        'OBSERVER ONLY: the SLAM node does not publish TF here '
+                        '(the mission already owns map->odom->base_link), so it '
+                        'cannot destabilise Nav2 or the mission. It publishes '
+                        '/drone_slam/map and /drone_slam/path for RViz.'),
+        DeclareLaunchArgument(
             'rviz', default_value='false',
             description='Open RViz with the delivery view (TF, Livox cloud, '
                         'costmap, planned path, landing target).'),
@@ -153,6 +160,30 @@ def generate_launch_description():
             arguments=['-d', os.path.join(vision_landing_share, 'config',
                                           'perception.rviz')],
             parameters=[{'use_sim_time': False}],
+        ),
+
+        # --- SLAM (optional, observer only) --------------------------------
+        # The lidar is 3D and SLAM here is 2D, so the cloud is flattened into a
+        # LaserScan first. Same node in SITL and on the aircraft: both consume
+        # /livox/points.
+        Node(
+            package='vision_landing', executable='cloud_to_scan',
+            name='cloud_to_scan', output='screen',
+            condition=IfCondition(LaunchConfiguration('slam')),
+            parameters=[{'use_sim_time': False}],
+        ),
+        # publish_tf is FALSE deliberately — see the launch argument above.
+        # Turning it on here gives map->odom two publishers and base_link two
+        # parents, which invalidates the transform tree and stops Nav2 planning.
+        Node(
+            package='drone_slam', executable='slam_node',
+            name='drone_slam', output='screen',
+            condition=IfCondition(LaunchConfiguration('slam')),
+            parameters=[{
+                'use_sim_time': False,
+                'publish_tf': False,
+                'position_topic': LaunchConfiguration('local_position_topic'),
+            }],
         ),
 
         # --- winch --------------------------------------------------------

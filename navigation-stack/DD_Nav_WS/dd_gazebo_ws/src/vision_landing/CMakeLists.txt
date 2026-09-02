@@ -50,6 +50,11 @@ ament_target_dependencies(gimbal_bridge rclcpp px4_msgs std_msgs)
 add_executable(costmap_to_cloud src/costmap_to_cloud.cpp)
 ament_target_dependencies(costmap_to_cloud rclcpp nav_msgs sensor_msgs)
 
+# Flattens the 3D lidar cloud into the 2D LaserScan that SLAM consumes. Serves
+# SITL and the aircraft identically: both publish /livox/points.
+add_executable(cloud_to_scan src/cloud_to_scan.cpp)
+ament_target_dependencies(cloud_to_scan rclcpp sensor_msgs)
+
 add_executable(nav2_path_bridge src/nav2_path_bridge.cpp)
 ament_target_dependencies(nav2_path_bridge rclcpp rclcpp_action nav2_msgs nav_msgs geometry_msgs)
 
@@ -65,6 +70,7 @@ install(TARGETS
   winch_bridge
   nav2_path_bridge
   costmap_to_cloud
+  cloud_to_scan
   vio_node
   DESTINATION lib/${PROJECT_NAME}
 )

@@ -105,6 +105,87 @@ complete mission in simulation. Nothing in it has ever run on real hardware.
 
 # Entries
 
+## 2026-09-02 — SLAM runs alongside the mission, as an observer
+
+**In one sentence:** the aircraft now builds a 2D map of its surroundings from
+the lidar while it flies the delivery, and the whole mission was re-flown in
+simulation with mapping active.
+
+### What changed
+
+- **`slam:=true`** is a new option on the delivery mission. It starts the
+  `drone_slam` mapping node, which accumulates an occupancy map of everything
+  the lidar sees and publishes the aircraft's trajectory. Both now appear in
+  the navigation RViz window.
+- **New `cloud_to_scan` node.** The lidar is 3D and this mapping is 2D, so the
+  cloud has to be flattened into a horizontal slice. It takes the nearest
+  return in each direction within a height band around the sensor — nearest
+  because for obstacle mapping a wall at 5 m matters more than the ground at
+  30 m, and a band because otherwise the ground and the sky both collapse into
+  the slice and the map fills with walls that are not there. It reads
+  `/livox/points`, which is what the real Livox driver publishes **and** what
+  the simulator bridge publishes, so the same node serves the aircraft and the
+  simulator.
+- **SLAM does not publish transforms here, deliberately.** The mission already
+  publishes the full position chain from the flight controller's estimate. If
+  the mapping node also published it, two things would fight over the same
+  transform and one frame would end up with two different parents — an invalid
+  setup that stops route planning entirely. Run standalone it still publishes
+  them, because then nothing else does.
+- **Two bugs found and fixed in `drone_slam` while wiring it up:**
+  - It listened on a flight-controller channel name that does not exist on this
+    firmware, so it would have run happily and never seen the aircraft move.
+    Same class of mistake as the one corrected yesterday.
+  - Its map was published in a mode RViz could not receive. The viewer
+    connected, reported nothing wrong in the window, and displayed an empty
+    map. The map is now latched, so a viewer that connects late immediately
+    gets the current map.
+- `drone_slam` is now part of the container build. It was never being compiled.
+
+### Why
+
+Two reasons. The obvious one is that a map of what the aircraft actually saw is
+far easier to judge than a scrolling list of lidar readings — you can look at
+it and say "that is the building, and it is in the right place". The second is
+that it is a cross-check on the lidar and the position estimate together: if
+the map comes out smeared or doubled, something is wrong with one of them, and
+that is much better found in simulation than in the air.
+
+### Hardware impact
+
+**None yet, but this is the payoff for the Livox driver.** Once the real lidar
+is publishing, this same mapping runs on the aircraft with no changes — the
+flattening node reads the same channel from the real driver as from the
+simulator. The map it produces is the clearest way to check the lidar is
+mounted, aimed and scaled correctly: fly a slow lap of a known space and see
+whether the walls come out where the walls are.
+
+### How it was verified
+
+Full mission re-flown in simulation with mapping active, on the Purdue campus
+world with a 108 m delivery. Completed end to end with `failsafe=none`:
+
+```
+takeoff → transit → deliver → return → search → land → disarm
+```
+
+The map grew from 1,339 to about 2,900 mapped cells over the flight as the
+aircraft covered the route and the two buildings. Checked specifically for the
+failure this could have caused: **zero** transform conflict warnings and
+**zero** channel-compatibility warnings for the whole flight, and the position
+chain still resolved correctly with mapping running.
+
+### Risks still open
+
+- Everything in "Blocking a first flight" is unchanged. Mapping is an observer;
+  it does not make the aircraft any more ready to fly.
+- The map is built from the flight controller's own position estimate, not
+  corrected by the mapping itself. It will inherit any drift in that estimate
+  rather than correct for it. Fine for checking the lidar; not a substitute for
+  position when GPS is poor.
+
+---
+
 ## 2026-09-01 (evening) — First full mission flown in simulation
 
 **In one sentence:** the complete delivery mission ran start to finish for the

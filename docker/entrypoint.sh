@@ -10,6 +10,7 @@
 #   navigation-stack/DD_Nav_WS/dd_gazebo_ws/src/   (vision_landing, drone_nav,
 #                                                   px4_msgs, px4_ros_com, …)
 #   landing/zed_apriltag_streaming/                (perception)
+#   navigation-stack/drone_slam/                   (2D occupancy mapping)
 #
 # The previous version of this script looked for ${WS}/src, never found it,
 # skipped the build, and then sourced whatever install/ happened to be sitting
@@ -32,6 +33,7 @@ REPO="/home/arc/arc_ws"
 BASE_PATHS=(
     "${REPO}/navigation-stack/DD_Nav_WS/dd_gazebo_ws/src"
     "${REPO}/landing/zed_apriltag_streaming"
+    "${REPO}/navigation-stack/drone_slam"
 )
 
 # Build output lives OUTSIDE the bind mount by default. The host tree carries

@@ -89,12 +89,38 @@ class DroneSLAM(Node):
             depth=1,
         )
 
+        # ── Parameters ────────────────────────────────────────────────────────
+        # PX4 appends a version suffix to the topic name for messages that
+        # carry a versioned definition. VehicleLocalPosition is one of them, so
+        # the bare name receives nothing at all — the node runs, reports no
+        # error, and simply never sees the aircraft move. Verify against the
+        # aircraft with:  ros2 topic list | grep fmu/out
+        pos_topic = self.declare_parameter(
+            'position_topic', '/fmu/out/vehicle_local_position_v1'
+        ).value
+
+        # Whether to broadcast the map->odom->base_link transform chain.
+        #
+        # FALSE when running inside the delivery mission. That stack already
+        # publishes map->odom (static) and odom->base_footprint->base_link, so
+        # broadcasting here would give map->odom two publishers fighting each
+        # other AND give base_link two different parents, which is an invalid
+        # transform tree — Nav2 stops planning entirely.
+        #
+        # TRUE when running this node standalone, where nothing else supplies
+        # the chain.
+        self.publish_tf = self.declare_parameter('publish_tf', True).value
+
         # ── Subscribers ───────────────────────────────────────────────────────
         self.create_subscription(
             VehicleLocalPosition,
-            '/fmu/out/vehicle_local_position',
+            pos_topic,
             self._cb_position,
             px4_qos,
+        )
+        self.get_logger().info(
+            f"drone_slam up — pose from '{pos_topic}', scans from '/scan', "
+            f"publish_tf={self.publish_tf}"
         )
         self.create_subscription(
             LaserScan,
@@ -104,7 +130,19 @@ class DroneSLAM(Node):
         )
 
         # ── Publishers ────────────────────────────────────────────────────────
-        self.pub_map   = self.create_publisher(OccupancyGrid, '/drone_slam/map',          1)
+        # Latched (transient local), the convention for map topics: an RViz or
+        # any other viewer that connects late immediately receives the current
+        # map instead of waiting for the next 2 Hz publish. Nav2's costmap
+        # topics behave the same way, so a viewer configured for one works for
+        # the other. A volatile publisher here silently delivers nothing to a
+        # subscriber that asks for transient local.
+        map_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self.pub_map   = self.create_publisher(OccupancyGrid, '/drone_slam/map', map_qos)
         self.pub_path  = self.create_publisher(Path,          '/drone_slam/path',         10)
         self.pub_cloud = self.create_publisher(PointCloud2,   '/drone_slam/lidar_points', 10)
 
@@ -322,6 +360,9 @@ class DroneSLAM(Node):
         Keeping map→odom as identity simplifies things; a proper SLAM back-end
         would update the map→odom transform when loop closures are detected.
         """
+        if not self.publish_tf:
+            return
+
         now = self.get_clock().now().to_msg()
 
         # map → odom  (no correction yet; identity)
