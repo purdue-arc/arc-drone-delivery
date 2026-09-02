@@ -105,6 +105,87 @@ complete mission in simulation. Nothing in it has ever run on real hardware.
 
 # Entries
 
+## 2026-09-02 (later) — 3D mapping, in its own window
+
+**In one sentence:** the aircraft now also builds a **3D** map of everything
+the lidar sees, shown in a separate RViz window, so buildings appear as shapes
+with height rather than as outlines on a flat plan.
+
+### What changed
+
+- **`slam_3d:=true`** is a new option on the delivery mission. It starts a 3D
+  voxel mapping node **and its own RViz window**. The existing 2D map stays in
+  the navigation window; the two are answering different questions and sharing
+  one window would only bury the route view.
+- The 3D node reads the **full lidar cloud**, not the flattened 2D scan — the
+  height is the entire point. Occupied voxels are published as a point cloud
+  coloured by height (blue low, yellow high), which RViz draws natively with
+  no extra plugin needed.
+- It uses the **full aircraft attitude** via the transform tree, so roll and
+  pitch during a banked turn are handled correctly. The 2D node only uses
+  heading, which is fine for a flat slice and would smear a 3D map.
+- Like the 2D node, it **publishes no transforms** and does not correct the
+  aircraft's position. It is an observer.
+
+### Why
+
+Looking at a live point cloud tells you almost nothing — it is a few thousand
+dots that vanish each frame. An accumulated 3D map is something you can judge
+at a glance: the buildings should look like buildings, standing in the right
+place, with vertical walls. That makes it the most direct check we have that
+the lidar is mounted, aimed and scaled correctly. Those faults are miserable to
+diagnose from live data and obvious in a map — walls lean, or the same wall
+appears twice, or the ground curves away.
+
+**A word on the name.** This is *mapping with known poses*, not full SLAM.
+Real SLAM recognises somewhere it has been before and retro-fits the whole
+trajectory so the map stays consistent. This does not: it takes the flight
+controller's position as truth and inherits any drift in it. That is still
+useful — it just is not a substitute for position when GPS is poor, and it
+should not be described as one.
+
+### Hardware impact
+
+**None yet — but this is the tool you will want the day the Livox is mounted.**
+Once the real lidar publishes, the same node runs unchanged; it reads the same
+channel from the real driver as from the simulator. The acceptance test for a
+newly mounted lidar is: fly a slow lap of somewhere you know, and see whether
+the walls come out where the walls actually are, vertical, and once each.
+
+### How it was verified
+
+Full mission flown in simulation with both 2D and 3D mapping active and three
+RViz windows open. Completed end to end, no failsafe:
+
+```
+Touchdown: commanding descent at 0.20 m/s but stopped descending
+at 0.10 m for 3.0 s — disarmed. Mission complete.
+```
+
+The 3D map grew to about 118,000 occupied voxels over 835 lidar scans. Zero
+channel-compatibility warnings and one dropped scan (the first, before the
+transform tree was up). The three transform warnings in the log are Nav2
+waiting for the position chain during startup, 36 seconds before the mission
+began — they also appear without any mapping running, so they are not caused
+by this.
+
+### Risks still open
+
+- **A bug this flight exposed, fixed afterwards and not yet re-flown.** The map
+  has a voxel cap; on reaching it the node was discarding the *lowest* values
+  first, which sounds sensible and is wrong — empty space is stored as negative
+  values, so it was throwing away everything it knew to be clear. Free-space
+  erasing would stop working from that point on and the map could only ever
+  grow. It now discards the least *certain* voxels instead, keeping what it is
+  sure about in either direction. Verified to build and start; not re-flown.
+- The node is Python and does real work per scan. It kept up here at about 25%
+  of one core, but on the Jetson, alongside everything else, it may not. Treat
+  it as a diagnostic to switch on when you want it, not something to leave
+  running on every flight.
+- Nothing here changes flight readiness. Both mapping nodes are observers.
+
+---
+
 ## 2026-09-02 — SLAM runs alongside the mission, as an observer
 
 **In one sentence:** the aircraft now builds a 2D map of its surroundings from

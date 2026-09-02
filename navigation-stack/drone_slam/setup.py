@@ -11,7 +11,8 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', ['launch/slam.launch.py']),
-        ('share/' + package_name + '/rviz',   ['rviz/slam_view.rviz']),
+        ('share/' + package_name + '/rviz',   ['rviz/slam_view.rviz',
+                                               'rviz/slam_3d.rviz']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -23,6 +24,7 @@ setup(
     entry_points={
         'console_scripts': [
             'slam_node = drone_slam.slam_node:main',
+            'slam_3d_node = drone_slam.slam_3d_node:main',
         ],
     },
 )

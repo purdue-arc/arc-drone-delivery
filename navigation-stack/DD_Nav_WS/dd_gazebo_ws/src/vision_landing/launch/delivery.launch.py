@@ -37,8 +37,9 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
@@ -76,6 +77,14 @@ def generate_launch_description():
                         '(the mission already owns map->odom->base_link), so it '
                         'cannot destabilise Nav2 or the mission. It publishes '
                         '/drone_slam/map and /drone_slam/path for RViz.'),
+        DeclareLaunchArgument(
+            'slam_3d', default_value='false',
+            description='3D voxel mapping from the lidar, in its OWN RViz '
+                        'window. Keeps the height the 2D map throws away, so '
+                        'buildings appear as shapes rather than outlines. '
+                        'Observer only: publishes no TF. Implies the '
+                        'cloud_to_scan flattener is not needed — this consumes '
+                        'the full 3D cloud directly.'),
         DeclareLaunchArgument(
             'rviz', default_value='false',
             description='Open RViz with the delivery view (TF, Livox cloud, '
@@ -184,6 +193,28 @@ def generate_launch_description():
                 'publish_tf': False,
                 'position_topic': LaunchConfiguration('local_position_topic'),
             }],
+        ),
+
+        # --- 3D mapping (optional, observer only, separate window) ---------
+        # Consumes the full 3D cloud, not the flattened scan: the whole point
+        # is the height that flattening discards. Like the 2D node it reads
+        # the aircraft's pose rather than solving for it, and publishes no TF.
+        Node(
+            package='drone_slam', executable='slam_3d_node',
+            name='drone_slam_3d', output='screen',
+            condition=IfCondition(LaunchConfiguration('slam_3d')),
+            parameters=[{'use_sim_time': False}],
+        ),
+        # Its own window, deliberately. The nav view is a top-down 2D picture
+        # for judging routes; a 3D map shares nothing useful with it and would
+        # only obscure the costmap.
+        Node(
+            package='rviz2', executable='rviz2', name='rviz_slam_3d',
+            output='screen',
+            condition=IfCondition(LaunchConfiguration('slam_3d')),
+            arguments=['-d', PathJoinSubstitution(
+                [FindPackageShare('drone_slam'), 'rviz', 'slam_3d.rviz'])],
+            parameters=[{'use_sim_time': False}],
         ),
 
         # --- winch --------------------------------------------------------
