@@ -221,6 +221,9 @@ public:
     blocked_escape_sec_ = declare_parameter("blocked_escape_sec", 10.0);
     escape_climb_m_ =
       static_cast<float>(declare_parameter("escape_climb_m", 5.0));
+    // Shortest leg worth asking Nav2 to plan. Below this the move is direct
+    // but still costmap-checked — see fly_guided_leg.
+    min_route_m_ = static_cast<float>(declare_parameter("min_route_m", 8.0));
 
     // PX4 topic names.
     //
@@ -785,7 +788,8 @@ private:
   // Returns true if the aircraft was commanded to move. False means it is
   // holding position on purpose, and the caller must not command anything
   // else: the reason it is holding is that moving is not known to be safe.
-  bool fly_guided_leg(float tgt_n, float tgt_e, float tgt_z, const char * leg)
+  bool fly_guided_leg(float tgt_n, float tgt_e, float tgt_z, const char * leg,
+                      const float * yaw_override = nullptr)
   {
     const float dx = tgt_n - current_ned_x_;
     const float dy = tgt_e - current_ned_y_;
@@ -814,7 +818,15 @@ private:
       publish_setpoint(current_ned_x_, current_ned_y_, hold_z, current_heading_);
     };
 
-    if (use_nav2_) {
+    // A global planner cannot usefully route a two-metre nudge, and demanding
+    // one at the moment of landing would add a failure mode exactly where the
+    // mission can least afford it. Below min_route_m the aircraft moves
+    // directly — but the move is still CHECKED against the costmap, so the
+    // "never fly into a detected obstacle" guarantee holds over the whole
+    // mission, not only over the legs long enough to plan.
+    const bool route_worthwhile = dist > min_route_m_;
+
+    if (use_nav2_ && route_worthwhile) {
       // 1. Keep the planner aimed, clamped into its rolling window.
       const float moved = std::hypot(current_ned_x_ - last_goal_pub_x_,
                                      current_ned_y_ - last_goal_pub_y_);
@@ -884,16 +896,31 @@ private:
       const float carrot = std::min(transit_speed_mps_ * TICK_SEC * 20.0f, adist);
       publish_setpoint(current_ned_x_ + (adx / adist) * carrot,
                        current_ned_y_ + (ady / adist) * carrot,
-                       tgt_z, std::atan2(ady, adx));
+                       tgt_z,
+                       yaw_override ? *yaw_override : std::atan2(ady, adx));
       blocked_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
       return true;
     }
 
-    // use_nav2 disabled: the operator has explicitly accepted an unguided leg.
+    // Short leg, or use_nav2 deliberately disabled.
     const float carrot = std::min(transit_speed_mps_ * TICK_SEC * 20.0f, dist);
-    publish_setpoint(current_ned_x_ + (dx / dist) * carrot,
-                     current_ned_y_ + (dy / dist) * carrot,
-                     tgt_z, std::atan2(dy, dx));
+    const float sn = current_ned_x_ + (dx / dist) * carrot;
+    const float se = current_ned_y_ + (dy / dist) * carrot;
+
+    if (use_nav2_ && costmap_fresh()) {
+      float hn = 0.0f, he = 0.0f;
+      if (segment_blocked(current_ned_x_, current_ned_y_, sn, se, &hn, &he)) {
+        char why[160];
+        std::snprintf(why, sizeof(why),
+          "short move crosses an obstacle at NED (%.1f, %.1f)", hn, he);
+        hold(why);
+        return false;
+      }
+    }
+
+    publish_setpoint(sn, se, tgt_z,
+                     yaw_override ? *yaw_override : std::atan2(dy, dx));
+    blocked_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
     return true;
   }
 
@@ -1452,7 +1479,16 @@ private:
           goto_yaw_ = std::atan2(landing_ned_y_ - current_ned_y_,
                                  landing_ned_x_ - current_ned_x_);
         }
-        publish_setpoint(landing_ned_x_, landing_ned_y_, tgt_alt, goto_yaw_);
+        // The run in to the pad is lateral flight and is guarded like the
+        // rest of the mission. Beyond min_route_m Nav2 routes it; inside that
+        // it is a direct move, still checked against the costmap. Holding
+        // here is safe: the tag is not going anywhere, and goto_timeout_sec
+        // already bounds how long this may take.
+        if (!fly_guided_leg(landing_ned_x_, landing_ned_y_, tgt_alt,
+                            "GOTO_TAG", &goto_yaw_)) {
+          goto_ticks_++;
+          break;
+        }
         goto_ticks_++;
 
         RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 500,
@@ -1507,8 +1543,17 @@ private:
         // package comes down on the cable, rotors stay well clear.
         const float target_h = on_station ? winch_hover_height_m_
                                           : transit_height_m_;
-        publish_setpoint(delivery_ned_x_, delivery_ned_y_,
-                         home_z_ - target_h, current_heading_);
+        // Closing the last stretch to the address is lateral flight like any
+        // other, so it goes through the same guarded path. Once on station
+        // this is a pure hold and the guard is a no-op.
+        if (!on_station) {
+          if (!fly_guided_leg(delivery_ned_x_, delivery_ned_y_,
+                              home_z_ - target_h, "DELIVER",
+                              &current_heading_)) break;
+        } else {
+          publish_setpoint(delivery_ned_x_, delivery_ned_y_,
+                           home_z_ - target_h, current_heading_);
+        }
 
         const bool at_height =
           std::fabs(height_above_home() - winch_hover_height_m_) < 0.5f;
@@ -1830,7 +1875,7 @@ private:
   bool   require_costmap_to_fly_;
   float  lookahead_check_m_;
   double blocked_escape_sec_;
-  float  escape_climb_m_;
+  float  escape_climb_m_, min_route_m_;
   rclcpp::Time blocked_since_{0, 0, RCL_ROS_TIME};
   nav_msgs::msg::OccupancyGrid costmap_;
   rclcpp::Time last_costmap_time_{0, 0, RCL_ROS_TIME};

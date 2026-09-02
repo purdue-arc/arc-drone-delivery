@@ -105,6 +105,101 @@ complete mission in simulation. Nothing in it has ever run on real hardware.
 
 # Entries
 
+## 2026-09-02 (late) — Real Purdue buildings, and Nav2 on every leg
+
+**In one sentence:** the simulated world is now the actual Purdue campus —
+real building footprints at their real positions, taken from the OSM data
+already in this repo — and every part of the mission that moves the aircraft
+sideways is routed and obstacle-checked, not just the two long legs.
+
+### The world is now the real campus
+
+26 real buildings within 480 m of the pad, each one an actual OSM footprint
+converted from latitude/longitude into the local frame, extruded to height and
+given collision geometry. Hillenbrand Hall, Shreve Hall, the Aquatic Center,
+the Turf Recreation Center and the rest are where they actually are.
+
+This is what "use the Purdue map" can mean in practice. The 933 MB campus mesh
+still cannot be used — as collision geometry it never finished loading, and
+even as scenery it starved the simulation until GPS stopped converging.
+Footprints give the real layout, real positions and real collision at a cost
+the simulator can carry.
+
+**Building heights are the weak part and are labelled as such.** OSM gives an
+explicit height for very few of these. Where there is one it is used; where
+there is a storey count it is multiplied by 3.5 m; otherwise the building is
+assumed to be 20 m. Every model in the world file records which of the three it
+got. The assumed ones are a guess.
+
+### Nav2 now guards every lateral leg
+
+Previously the outbound and return legs were routed and checked while the
+shorter moves — closing the last stretch onto the delivery address, and the run
+in to the landing pad — were direct setpoints with no obstacle check at all.
+They are short, but "short" is not "safe".
+
+All of them now go through the same guarded path. One deliberate distinction:
+below `min_route_m` (8 m) the aircraft moves directly rather than asking for a
+route, because a global planner cannot usefully plan a two-metre nudge and
+demanding one at the moment of landing would add a failure mode exactly where
+the mission can least afford it. **The obstacle check still applies to those
+short moves.** So the guarantee — never fly into something the lidar has seen —
+holds across the whole mission, while the planner is used where a plan means
+something.
+
+### Hardware impact
+
+**None directly, but the world is now a much better rehearsal.** Flying the
+mission against real building positions is the closest thing to a site survey
+available before the aircraft exists. If a route looks wrong here — cutting a
+corner it should not, or refusing a gap it should take — that is worth knowing
+before anyone stands in a field with a transmitter.
+
+### How it was verified
+
+Flown end to end on the real campus: pad at the Intramural Gold Fields to a
+point 392 m away, and back. **No failsafe.**
+
+```
+TRANSIT: 391 m to go ... 4 m to go   ->  DELIVER
+RETURN:  377 m to go ... 24 m to go  ->  SEARCH -> LAND
+Touchdown: commanding descent at 0.20 m/s but stopped descending
+at 0.03 m for 3.1 s — disarmed. Mission complete.
+```
+
+The only hold in the entire flight was "waiting for a Nav2 route" before the
+first plan arrived. Nothing was ever blocked in flight. The altitude filter
+tracked the aircraft throughout (band 12.6-21.1 m at transit altitude).
+
+### An honest note on "three buildings"
+
+The straight line from the pad to this delivery point passes through three real
+buildings: the **Morgan J. Burke Aquatic Center**, the **Turf Recreation
+Exercise Center**, and the **Hull "All-American" Marching Band Complex**.
+
+Two of them are taller than the 15 m transit altitude and must be flown
+around. The third, Hull, is recorded in OSM as two storeys — 7 m — so the
+aircraft correctly flies **over** it rather than around. That is the
+altitude-aware costmap doing its job, and it is the right behaviour, but it
+means this run demonstrates *around two, over one* rather than around three.
+
+No straight route from this pad crosses three buildings that are all taller
+than the transit altitude, given the heights OSM provides. To have all three
+flown around, either lower the transit altitude below 7 m or correct Hull's
+height if 7 m is wrong for a rehearsal hall with high ceilings — it may well
+be.
+
+### Risks still open
+
+- Nothing was blocked in flight, so the route around the two tall buildings was
+  planned rather than reacted to. The reactive path — a route going stale
+  because something new appeared — still has not been exercised.
+- The climb-to-escape behaviour has still never triggered.
+- The mid-air disarm risk in the touchdown logic is **unchanged and remains the
+  top item** blocking a first flight.
+
+---
+
 ## 2026-09-02 (evening) — Obstacle safety on both legs, altitude-aware costmap, new Purdue route
 
 **In one sentence:** the return flight is now routed around obstacles like the

@@ -141,30 +141,1457 @@
                                  was marked exactly like the tall one, and the
                                  aircraft detoured around something it clears
                                  by 7 m. -->
-    <model name="building_tall">
+    <!-- THE REAL PURDUE CAMPUS, from the OSM extract already in this repo
+         (Path_Planning/worlds/map-2.osm). Every building below is an actual
+         building at its actual position: the polygon is its true OSM
+         footprint, converted from lat/lon into the local frame whose origin is
+         the pad at the Intramural Gold Fields. Gazebo x is local NORTH, y is
+         local EAST.
+
+         26 buildings within 480 m of the pad.
+
+         These are extruded FOOTPRINTS, not the 933 MB campus mesh. That mesh
+         is unusable here — as collision geometry it never finished loading,
+         and even as scenery it starved the simulation badly enough that GPS
+         never converged. Footprints give the real layout, real positions and
+         real collision at a cost the simulator can carry.
+
+         HEIGHTS: taken from the OSM `height` tag where present, otherwise
+         `building:levels` x 3.5 m, otherwise assumed 20 m. Each model below
+         records which. The assumed ones are a guess and are labelled as such.
+    -->
+    <!-- Hillenbrand Hall — height 28 m (osm-levels) -->
+    <model name="Hillenbrand_Hall">
       <static>true</static>
-      <pose>-32 196 12.5 0 0 0</pose>
+      <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="collision">
-          <geometry><box><size>40 40 25</size></box></geometry>
+          <geometry><polyline>
+            <point>-228.68 96.87</point>
+            <point>-225.78 96.97</point>
+            <point>-191.68 96.98</point>
+            <point>-191.74 92.50</point>
+            <point>-190.37 92.47</point>
+            <point>-188.78 92.49</point>
+            <point>-188.77 81.56</point>
+            <point>-193.90 81.54</point>
+            <point>-195.04 81.54</point>
+            <point>-218.28 81.48</point>
+            <point>-220.04 79.93</point>
+            <point>-219.95 53.66</point>
+            <point>-224.11 53.66</point>
+            <point>-224.10 52.25</point>
+            <point>-224.10 50.85</point>
+            <point>-235.15 50.82</point>
+            <point>-235.16 55.38</point>
+            <point>-235.26 86.78</point>
+            <point>-235.27 90.22</point>
+            <point>-237.01 90.21</point>
+            <point>-238.69 90.20</point>
+            <point>-240.90 90.20</point>
+            <point>-279.00 52.24</point>
+            <point>-283.85 57.10</point>
+            <point>-287.38 60.65</point>
+            <point>-288.24 59.79</point>
+            <point>-292.53 64.10</point>
+            <point>-297.77 69.36</point>
+            <point>-291.08 76.02</point>
+            <point>-299.38 84.36</point>
+            <point>-298.29 85.44</point>
+            <point>-300.43 87.58</point>
+            <point>-300.61 93.97</point>
+            <point>-296.20 98.87</point>
+            <point>-289.12 98.69</point>
+            <point>-287.02 96.64</point>
+            <point>-267.37 116.75</point>
+            <point>-267.36 118.74</point>
+            <point>-267.36 120.03</point>
+            <point>-267.35 122.31</point>
+            <point>-270.74 122.32</point>
+            <point>-296.09 122.41</point>
+            <point>-302.12 122.43</point>
+            <point>-306.79 122.45</point>
+            <point>-306.74 133.18</point>
+            <point>-305.46 133.18</point>
+            <point>-304.25 133.17</point>
+            <point>-304.24 137.08</point>
+            <point>-296.09 137.06</point>
+            <point>-277.82 136.99</point>
+            <point>-276.05 138.79</point>
+            <point>-276.03 154.55</point>
+            <point>-276.02 163.15</point>
+            <point>-276.01 168.40</point>
+            <point>-264.95 168.38</point>
+            <point>-264.95 166.49</point>
+            <point>-264.95 165.03</point>
+            <point>-260.73 165.02</point>
+            <point>-260.74 154.61</point>
+            <point>-260.78 131.68</point>
+            <point>-260.78 128.55</point>
+            <point>-255.07 128.54</point>
+            <point>-248.77 122.12</point>
+            <point>-247.80 123.07</point>
+            <point>-247.65 135.29</point>
+            <point>-247.64 136.17</point>
+            <point>-248.40 136.79</point>
+            <point>-248.11 143.48</point>
+            <point>-243.63 148.25</point>
+            <point>-236.70 148.14</point>
+            <point>-234.24 145.60</point>
+            <point>-232.71 145.61</point>
+            <point>-228.81 145.65</point>
+            <point>-224.28 145.69</point>
+            <point>-223.03 145.70</point>
+            <point>-220.36 148.32</point>
+            <point>-213.77 148.29</point>
+            <point>-209.16 143.55</point>
+            <point>-209.08 136.97</point>
+            <point>-211.51 134.61</point>
+            <point>-211.51 132.78</point>
+            <point>-211.49 128.50</point>
+            <point>-211.47 124.40</point>
+            <point>-211.46 122.87</point>
+            <point>-209.05 120.34</point>
+            <point>-208.90 113.87</point>
+            <point>-213.98 109.18</point>
+            <point>-220.47 109.11</point>
+            <point>-221.05 109.65</point>
+            <point>-222.75 109.66</point>
+            <point>-234.30 109.74</point>
+            <point>-235.29 108.75</point>
+            <point>-228.78 102.21</point>
+            <height>28.00</height>
+          </polyline></geometry>
         </collision>
         <visual name="visual">
-          <geometry><box><size>40 40 25</size></box></geometry>
-          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.50 0.50 0.55 1</diffuse></material>
+          <geometry><polyline>
+            <point>-228.68 96.87</point>
+            <point>-225.78 96.97</point>
+            <point>-191.68 96.98</point>
+            <point>-191.74 92.50</point>
+            <point>-190.37 92.47</point>
+            <point>-188.78 92.49</point>
+            <point>-188.77 81.56</point>
+            <point>-193.90 81.54</point>
+            <point>-195.04 81.54</point>
+            <point>-218.28 81.48</point>
+            <point>-220.04 79.93</point>
+            <point>-219.95 53.66</point>
+            <point>-224.11 53.66</point>
+            <point>-224.10 52.25</point>
+            <point>-224.10 50.85</point>
+            <point>-235.15 50.82</point>
+            <point>-235.16 55.38</point>
+            <point>-235.26 86.78</point>
+            <point>-235.27 90.22</point>
+            <point>-237.01 90.21</point>
+            <point>-238.69 90.20</point>
+            <point>-240.90 90.20</point>
+            <point>-279.00 52.24</point>
+            <point>-283.85 57.10</point>
+            <point>-287.38 60.65</point>
+            <point>-288.24 59.79</point>
+            <point>-292.53 64.10</point>
+            <point>-297.77 69.36</point>
+            <point>-291.08 76.02</point>
+            <point>-299.38 84.36</point>
+            <point>-298.29 85.44</point>
+            <point>-300.43 87.58</point>
+            <point>-300.61 93.97</point>
+            <point>-296.20 98.87</point>
+            <point>-289.12 98.69</point>
+            <point>-287.02 96.64</point>
+            <point>-267.37 116.75</point>
+            <point>-267.36 118.74</point>
+            <point>-267.36 120.03</point>
+            <point>-267.35 122.31</point>
+            <point>-270.74 122.32</point>
+            <point>-296.09 122.41</point>
+            <point>-302.12 122.43</point>
+            <point>-306.79 122.45</point>
+            <point>-306.74 133.18</point>
+            <point>-305.46 133.18</point>
+            <point>-304.25 133.17</point>
+            <point>-304.24 137.08</point>
+            <point>-296.09 137.06</point>
+            <point>-277.82 136.99</point>
+            <point>-276.05 138.79</point>
+            <point>-276.03 154.55</point>
+            <point>-276.02 163.15</point>
+            <point>-276.01 168.40</point>
+            <point>-264.95 168.38</point>
+            <point>-264.95 166.49</point>
+            <point>-264.95 165.03</point>
+            <point>-260.73 165.02</point>
+            <point>-260.74 154.61</point>
+            <point>-260.78 131.68</point>
+            <point>-260.78 128.55</point>
+            <point>-255.07 128.54</point>
+            <point>-248.77 122.12</point>
+            <point>-247.80 123.07</point>
+            <point>-247.65 135.29</point>
+            <point>-247.64 136.17</point>
+            <point>-248.40 136.79</point>
+            <point>-248.11 143.48</point>
+            <point>-243.63 148.25</point>
+            <point>-236.70 148.14</point>
+            <point>-234.24 145.60</point>
+            <point>-232.71 145.61</point>
+            <point>-228.81 145.65</point>
+            <point>-224.28 145.69</point>
+            <point>-223.03 145.70</point>
+            <point>-220.36 148.32</point>
+            <point>-213.77 148.29</point>
+            <point>-209.16 143.55</point>
+            <point>-209.08 136.97</point>
+            <point>-211.51 134.61</point>
+            <point>-211.51 132.78</point>
+            <point>-211.49 128.50</point>
+            <point>-211.47 124.40</point>
+            <point>-211.46 122.87</point>
+            <point>-209.05 120.34</point>
+            <point>-208.90 113.87</point>
+            <point>-213.98 109.18</point>
+            <point>-220.47 109.11</point>
+            <point>-221.05 109.65</point>
+            <point>-222.75 109.66</point>
+            <point>-234.30 109.74</point>
+            <point>-235.29 108.75</point>
+            <point>-228.78 102.21</point>
+            <height>28.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
         </visual>
       </link>
     </model>
 
-    <model name="building_low">
+    <!-- Earhart Hall — height 20 m (assumed) -->
+    <model name="Earhart_Hall">
       <static>true</static>
-      <pose>-64 392 4 0 0 0</pose>
+      <pose>0 0 0 0 0 0</pose>
       <link name="link">
         <collision name="collision">
-          <geometry><box><size>40 40 8</size></box></geometry>
+          <geometry><polyline>
+            <point>-309.07 213.91</point>
+            <point>-317.25 213.95</point>
+            <point>-318.52 213.96</point>
+            <point>-319.70 213.96</point>
+            <point>-368.73 214.15</point>
+            <point>-369.88 214.15</point>
+            <point>-370.99 214.16</point>
+            <point>-379.67 214.19</point>
+            <point>-379.62 226.64</point>
+            <point>-368.12 226.59</point>
+            <point>-368.11 229.12</point>
+            <point>-368.10 232.28</point>
+            <point>-368.08 237.86</point>
+            <point>-369.19 237.86</point>
+            <point>-369.20 237.39</point>
+            <point>-374.35 238.54</point>
+            <point>-374.35 241.75</point>
+            <point>-374.35 245.80</point>
+            <point>-373.75 245.89</point>
+            <point>-369.23 246.59</point>
+            <point>-369.08 276.52</point>
+            <point>-367.75 276.51</point>
+            <point>-367.73 278.10</point>
+            <point>-367.71 281.96</point>
+            <point>-367.69 285.86</point>
+            <point>-367.68 288.08</point>
+            <point>-379.18 288.13</point>
+            <point>-379.11 300.27</point>
+            <point>-370.54 300.23</point>
+            <point>-369.46 300.22</point>
+            <point>-368.32 300.21</point>
+            <point>-319.39 299.96</point>
+            <point>-318.05 299.96</point>
+            <point>-316.96 299.95</point>
+            <point>-308.73 299.90</point>
+            <point>-308.79 287.73</point>
+            <point>-323.96 287.80</point>
+            <point>-323.97 285.95</point>
+            <point>-324.03 276.37</point>
+            <point>-324.07 266.85</point>
+            <point>-317.76 266.81</point>
+            <point>-317.77 263.62</point>
+            <point>-312.31 263.59</point>
+            <point>-312.38 250.24</point>
+            <point>-317.82 250.27</point>
+            <point>-317.83 247.97</point>
+            <point>-312.38 247.95</point>
+            <point>-312.42 237.11</point>
+            <point>-322.55 237.15</point>
+            <point>-324.78 237.16</point>
+            <point>-324.82 226.17</point>
+            <point>-320.80 226.15</point>
+            <point>-319.05 226.14</point>
+            <point>-314.81 226.12</point>
+            <point>-311.68 226.11</point>
+            <point>-309.02 226.10</point>
+            <height>20.00</height>
+          </polyline></geometry>
         </collision>
         <visual name="visual">
-          <geometry><box><size>40 40 8</size></box></geometry>
-          <material><ambient>0.30 0.42 0.32 1</ambient><diffuse>0.38 0.54 0.40 1</diffuse></material>
+          <geometry><polyline>
+            <point>-309.07 213.91</point>
+            <point>-317.25 213.95</point>
+            <point>-318.52 213.96</point>
+            <point>-319.70 213.96</point>
+            <point>-368.73 214.15</point>
+            <point>-369.88 214.15</point>
+            <point>-370.99 214.16</point>
+            <point>-379.67 214.19</point>
+            <point>-379.62 226.64</point>
+            <point>-368.12 226.59</point>
+            <point>-368.11 229.12</point>
+            <point>-368.10 232.28</point>
+            <point>-368.08 237.86</point>
+            <point>-369.19 237.86</point>
+            <point>-369.20 237.39</point>
+            <point>-374.35 238.54</point>
+            <point>-374.35 241.75</point>
+            <point>-374.35 245.80</point>
+            <point>-373.75 245.89</point>
+            <point>-369.23 246.59</point>
+            <point>-369.08 276.52</point>
+            <point>-367.75 276.51</point>
+            <point>-367.73 278.10</point>
+            <point>-367.71 281.96</point>
+            <point>-367.69 285.86</point>
+            <point>-367.68 288.08</point>
+            <point>-379.18 288.13</point>
+            <point>-379.11 300.27</point>
+            <point>-370.54 300.23</point>
+            <point>-369.46 300.22</point>
+            <point>-368.32 300.21</point>
+            <point>-319.39 299.96</point>
+            <point>-318.05 299.96</point>
+            <point>-316.96 299.95</point>
+            <point>-308.73 299.90</point>
+            <point>-308.79 287.73</point>
+            <point>-323.96 287.80</point>
+            <point>-323.97 285.95</point>
+            <point>-324.03 276.37</point>
+            <point>-324.07 266.85</point>
+            <point>-317.76 266.81</point>
+            <point>-317.77 263.62</point>
+            <point>-312.31 263.59</point>
+            <point>-312.38 250.24</point>
+            <point>-317.82 250.27</point>
+            <point>-317.83 247.97</point>
+            <point>-312.38 247.95</point>
+            <point>-312.42 237.11</point>
+            <point>-322.55 237.15</point>
+            <point>-324.78 237.16</point>
+            <point>-324.82 226.17</point>
+            <point>-320.80 226.15</point>
+            <point>-319.05 226.14</point>
+            <point>-314.81 226.12</point>
+            <point>-311.68 226.11</point>
+            <point>-309.02 226.10</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Morgan J. Burke Boilermaker Aquatic Center — height 20 m (assumed) -->
+    <model name="Morgan_J__Burke_Boilermaker_Aquatic_Center">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>-53.34 427.58</point>
+            <point>-58.28 427.47</point>
+            <point>-137.98 425.57</point>
+            <point>-137.64 410.56</point>
+            <point>-137.55 406.95</point>
+            <point>-140.42 406.88</point>
+            <point>-139.71 376.89</point>
+            <point>-136.68 376.96</point>
+            <point>-136.59 373.10</point>
+            <point>-110.80 373.72</point>
+            <point>-110.77 372.83</point>
+            <point>-49.01 374.31</point>
+            <point>-49.04 375.39</point>
+            <point>-39.91 375.61</point>
+            <point>-40.14 385.07</point>
+            <point>-41.02 385.06</point>
+            <point>-39.89 391.36</point>
+            <point>-39.26 397.50</point>
+            <point>-38.02 397.53</point>
+            <point>-38.08 400.47</point>
+            <point>-38.15 403.42</point>
+            <point>-38.24 406.87</point>
+            <point>-38.32 410.02</point>
+            <point>-38.72 410.00</point>
+            <point>-38.94 419.33</point>
+            <point>-40.49 419.29</point>
+            <point>-43.78 419.22</point>
+            <point>-43.70 415.98</point>
+            <point>-50.14 415.83</point>
+            <point>-50.36 424.96</point>
+            <point>-53.28 424.89</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>-53.34 427.58</point>
+            <point>-58.28 427.47</point>
+            <point>-137.98 425.57</point>
+            <point>-137.64 410.56</point>
+            <point>-137.55 406.95</point>
+            <point>-140.42 406.88</point>
+            <point>-139.71 376.89</point>
+            <point>-136.68 376.96</point>
+            <point>-136.59 373.10</point>
+            <point>-110.80 373.72</point>
+            <point>-110.77 372.83</point>
+            <point>-49.01 374.31</point>
+            <point>-49.04 375.39</point>
+            <point>-39.91 375.61</point>
+            <point>-40.14 385.07</point>
+            <point>-41.02 385.06</point>
+            <point>-39.89 391.36</point>
+            <point>-39.26 397.50</point>
+            <point>-38.02 397.53</point>
+            <point>-38.08 400.47</point>
+            <point>-38.15 403.42</point>
+            <point>-38.24 406.87</point>
+            <point>-38.32 410.02</point>
+            <point>-38.72 410.00</point>
+            <point>-38.94 419.33</point>
+            <point>-40.49 419.29</point>
+            <point>-43.78 419.22</point>
+            <point>-43.70 415.98</point>
+            <point>-50.14 415.83</point>
+            <point>-50.36 424.96</point>
+            <point>-53.28 424.89</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- France A. Córdova Recreational Sports Center — height 20 m (assumed) -->
+    <model name="France_A__Córdova_Recreational_Sports_Center">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>40.97 434.97</point>
+            <point>37.28 434.90</point>
+            <point>37.38 432.59</point>
+            <point>5.73 431.70</point>
+            <point>3.26 420.45</point>
+            <point>-24.67 426.61</point>
+            <point>-23.62 423.45</point>
+            <point>-28.93 424.66</point>
+            <point>-33.97 425.82</point>
+            <point>-34.85 426.02</point>
+            <point>-36.25 426.34</point>
+            <point>-37.28 426.57</point>
+            <point>-37.59 427.49</point>
+            <point>-40.41 426.53</point>
+            <point>-40.01 424.98</point>
+            <point>-40.65 424.97</point>
+            <point>-40.49 419.29</point>
+            <point>-43.78 419.22</point>
+            <point>-43.70 415.98</point>
+            <point>-50.14 415.83</point>
+            <point>-50.36 424.96</point>
+            <point>-53.28 424.89</point>
+            <point>-53.34 427.58</point>
+            <point>-58.28 427.47</point>
+            <point>-58.28 434.77</point>
+            <point>-116.95 433.40</point>
+            <point>-117.14 441.54</point>
+            <point>-139.25 441.12</point>
+            <point>-139.76 457.86</point>
+            <point>-140.76 457.88</point>
+            <point>-141.43 457.89</point>
+            <point>-141.50 455.91</point>
+            <point>-144.27 455.83</point>
+            <point>-154.12 455.55</point>
+            <point>-151.93 498.41</point>
+            <point>-142.51 498.59</point>
+            <point>-142.59 494.84</point>
+            <point>-139.55 494.94</point>
+            <point>-137.91 495.00</point>
+            <point>-135.28 495.09</point>
+            <point>-135.58 506.87</point>
+            <point>-96.93 507.68</point>
+            <point>-96.86 505.67</point>
+            <point>-94.52 505.72</point>
+            <point>-92.71 505.76</point>
+            <point>-92.75 510.97</point>
+            <point>-91.63 511.01</point>
+            <point>-70.10 511.86</point>
+            <point>-53.18 512.52</point>
+            <point>-53.19 514.56</point>
+            <point>-54.30 514.89</point>
+            <point>-53.66 516.72</point>
+            <point>-53.21 517.97</point>
+            <point>-53.24 523.89</point>
+            <point>-49.73 522.92</point>
+            <point>-34.65 518.51</point>
+            <point>-17.59 513.50</point>
+            <point>-17.51 510.74</point>
+            <point>-13.87 510.88</point>
+            <point>-13.93 512.58</point>
+            <point>38.82 514.03</point>
+            <point>38.96 506.73</point>
+            <point>36.06 506.59</point>
+            <point>36.88 477.88</point>
+            <point>37.07 471.57</point>
+            <point>37.26 464.94</point>
+            <point>42.67 465.13</point>
+            <point>43.16 451.98</point>
+            <point>37.56 451.96</point>
+            <point>37.77 442.68</point>
+            <point>40.73 442.66</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>40.97 434.97</point>
+            <point>37.28 434.90</point>
+            <point>37.38 432.59</point>
+            <point>5.73 431.70</point>
+            <point>3.26 420.45</point>
+            <point>-24.67 426.61</point>
+            <point>-23.62 423.45</point>
+            <point>-28.93 424.66</point>
+            <point>-33.97 425.82</point>
+            <point>-34.85 426.02</point>
+            <point>-36.25 426.34</point>
+            <point>-37.28 426.57</point>
+            <point>-37.59 427.49</point>
+            <point>-40.41 426.53</point>
+            <point>-40.01 424.98</point>
+            <point>-40.65 424.97</point>
+            <point>-40.49 419.29</point>
+            <point>-43.78 419.22</point>
+            <point>-43.70 415.98</point>
+            <point>-50.14 415.83</point>
+            <point>-50.36 424.96</point>
+            <point>-53.28 424.89</point>
+            <point>-53.34 427.58</point>
+            <point>-58.28 427.47</point>
+            <point>-58.28 434.77</point>
+            <point>-116.95 433.40</point>
+            <point>-117.14 441.54</point>
+            <point>-139.25 441.12</point>
+            <point>-139.76 457.86</point>
+            <point>-140.76 457.88</point>
+            <point>-141.43 457.89</point>
+            <point>-141.50 455.91</point>
+            <point>-144.27 455.83</point>
+            <point>-154.12 455.55</point>
+            <point>-151.93 498.41</point>
+            <point>-142.51 498.59</point>
+            <point>-142.59 494.84</point>
+            <point>-139.55 494.94</point>
+            <point>-137.91 495.00</point>
+            <point>-135.28 495.09</point>
+            <point>-135.58 506.87</point>
+            <point>-96.93 507.68</point>
+            <point>-96.86 505.67</point>
+            <point>-94.52 505.72</point>
+            <point>-92.71 505.76</point>
+            <point>-92.75 510.97</point>
+            <point>-91.63 511.01</point>
+            <point>-70.10 511.86</point>
+            <point>-53.18 512.52</point>
+            <point>-53.19 514.56</point>
+            <point>-54.30 514.89</point>
+            <point>-53.66 516.72</point>
+            <point>-53.21 517.97</point>
+            <point>-53.24 523.89</point>
+            <point>-49.73 522.92</point>
+            <point>-34.65 518.51</point>
+            <point>-17.59 513.50</point>
+            <point>-17.51 510.74</point>
+            <point>-13.87 510.88</point>
+            <point>-13.93 512.58</point>
+            <point>38.82 514.03</point>
+            <point>38.96 506.73</point>
+            <point>36.06 506.59</point>
+            <point>36.88 477.88</point>
+            <point>37.07 471.57</point>
+            <point>37.26 464.94</point>
+            <point>42.67 465.13</point>
+            <point>43.16 451.98</point>
+            <point>37.56 451.96</point>
+            <point>37.77 442.68</point>
+            <point>40.73 442.66</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Shreve Hall — height 20 m (assumed) -->
+    <model name="Shreve_Hall">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>-200.62 213.38</point>
+            <point>-210.46 213.41</point>
+            <point>-211.81 213.41</point>
+            <point>-263.90 213.57</point>
+            <point>-265.30 213.57</point>
+            <point>-266.52 213.57</point>
+            <point>-274.96 213.60</point>
+            <point>-274.93 226.09</point>
+            <point>-274.45 226.08</point>
+            <point>-272.04 226.08</point>
+            <point>-268.72 226.07</point>
+            <point>-264.77 226.06</point>
+            <point>-255.57 226.03</point>
+            <point>-255.56 228.72</point>
+            <point>-255.50 247.16</point>
+            <point>-261.75 247.18</point>
+            <point>-261.74 250.28</point>
+            <point>-267.29 250.30</point>
+            <point>-267.25 263.05</point>
+            <point>-261.92 263.04</point>
+            <point>-261.91 266.45</point>
+            <point>-260.03 266.45</point>
+            <point>-260.02 267.94</point>
+            <point>-255.37 267.92</point>
+            <point>-255.30 287.31</point>
+            <point>-274.46 287.38</point>
+            <point>-274.41 299.67</point>
+            <point>-265.75 299.64</point>
+            <point>-264.77 299.63</point>
+            <point>-261.88 299.63</point>
+            <point>-210.98 299.44</point>
+            <point>-209.62 299.44</point>
+            <point>-200.12 299.40</point>
+            <point>-200.16 287.06</point>
+            <point>-211.53 287.10</point>
+            <point>-211.55 281.53</point>
+            <point>-211.57 275.75</point>
+            <point>-208.88 275.74</point>
+            <point>-208.89 272.22</point>
+            <point>-210.55 272.23</point>
+            <point>-210.55 270.45</point>
+            <point>-210.66 236.96</point>
+            <point>-211.75 236.96</point>
+            <point>-211.78 231.67</point>
+            <point>-211.79 225.70</point>
+            <point>-200.59 225.67</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>-200.62 213.38</point>
+            <point>-210.46 213.41</point>
+            <point>-211.81 213.41</point>
+            <point>-263.90 213.57</point>
+            <point>-265.30 213.57</point>
+            <point>-266.52 213.57</point>
+            <point>-274.96 213.60</point>
+            <point>-274.93 226.09</point>
+            <point>-274.45 226.08</point>
+            <point>-272.04 226.08</point>
+            <point>-268.72 226.07</point>
+            <point>-264.77 226.06</point>
+            <point>-255.57 226.03</point>
+            <point>-255.56 228.72</point>
+            <point>-255.50 247.16</point>
+            <point>-261.75 247.18</point>
+            <point>-261.74 250.28</point>
+            <point>-267.29 250.30</point>
+            <point>-267.25 263.05</point>
+            <point>-261.92 263.04</point>
+            <point>-261.91 266.45</point>
+            <point>-260.03 266.45</point>
+            <point>-260.02 267.94</point>
+            <point>-255.37 267.92</point>
+            <point>-255.30 287.31</point>
+            <point>-274.46 287.38</point>
+            <point>-274.41 299.67</point>
+            <point>-265.75 299.64</point>
+            <point>-264.77 299.63</point>
+            <point>-261.88 299.63</point>
+            <point>-210.98 299.44</point>
+            <point>-209.62 299.44</point>
+            <point>-200.12 299.40</point>
+            <point>-200.16 287.06</point>
+            <point>-211.53 287.10</point>
+            <point>-211.55 281.53</point>
+            <point>-211.57 275.75</point>
+            <point>-208.88 275.74</point>
+            <point>-208.89 272.22</point>
+            <point>-210.55 272.23</point>
+            <point>-210.55 270.45</point>
+            <point>-210.66 236.96</point>
+            <point>-211.75 236.96</point>
+            <point>-211.78 231.67</point>
+            <point>-211.79 225.70</point>
+            <point>-200.59 225.67</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Smalley Center — height 4 m (osm-levels) -->
+    <model name="Smalley_Center">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>-193.46 382.02</point>
+            <point>-194.16 406.23</point>
+            <point>-198.26 406.11</point>
+            <point>-198.32 407.77</point>
+            <point>-194.15 407.89</point>
+            <point>-194.64 424.65</point>
+            <point>-207.12 424.28</point>
+            <point>-207.17 425.85</point>
+            <point>-226.35 425.30</point>
+            <point>-226.07 415.39</point>
+            <point>-224.28 415.44</point>
+            <point>-224.14 410.86</point>
+            <point>-220.30 410.97</point>
+            <point>-220.14 405.40</point>
+            <point>-221.87 405.34</point>
+            <point>-221.63 396.96</point>
+            <point>-222.99 396.92</point>
+            <point>-222.86 392.69</point>
+            <point>-221.48 392.74</point>
+            <point>-221.16 381.23</point>
+            <height>3.50</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>-193.46 382.02</point>
+            <point>-194.16 406.23</point>
+            <point>-198.26 406.11</point>
+            <point>-198.32 407.77</point>
+            <point>-194.15 407.89</point>
+            <point>-194.64 424.65</point>
+            <point>-207.12 424.28</point>
+            <point>-207.17 425.85</point>
+            <point>-226.35 425.30</point>
+            <point>-226.07 415.39</point>
+            <point>-224.28 415.44</point>
+            <point>-224.14 410.86</point>
+            <point>-220.30 410.97</point>
+            <point>-220.14 405.40</point>
+            <point>-221.87 405.34</point>
+            <point>-221.63 396.96</point>
+            <point>-222.99 396.92</point>
+            <point>-222.86 392.69</point>
+            <point>-221.48 392.74</point>
+            <point>-221.16 381.23</point>
+            <height>3.50</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Purdue Fire Department — height 20 m (assumed) -->
+    <model name="Purdue_Fire_Department">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>-124.37 327.66</point>
+            <point>-131.80 327.54</point>
+            <point>-131.72 322.75</point>
+            <point>-145.02 322.53</point>
+            <point>-145.11 327.31</point>
+            <point>-146.32 327.28</point>
+            <point>-146.35 329.16</point>
+            <point>-146.46 335.61</point>
+            <point>-146.56 341.60</point>
+            <point>-149.44 341.55</point>
+            <point>-149.66 354.59</point>
+            <point>-148.46 354.61</point>
+            <point>-139.88 354.76</point>
+            <point>-139.86 353.19</point>
+            <point>-117.04 353.58</point>
+            <point>-116.89 344.10</point>
+            <point>-124.65 343.97</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>-124.37 327.66</point>
+            <point>-131.80 327.54</point>
+            <point>-131.72 322.75</point>
+            <point>-145.02 322.53</point>
+            <point>-145.11 327.31</point>
+            <point>-146.32 327.28</point>
+            <point>-146.35 329.16</point>
+            <point>-146.46 335.61</point>
+            <point>-146.56 341.60</point>
+            <point>-149.44 341.55</point>
+            <point>-149.66 354.59</point>
+            <point>-148.46 354.61</point>
+            <point>-139.88 354.76</point>
+            <point>-139.86 353.19</point>
+            <point>-117.04 353.58</point>
+            <point>-116.89 344.10</point>
+            <point>-124.65 343.97</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Fairway Cooperative — height 10 m (osm-levels) -->
+    <model name="Fairway_Cooperative">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>356.85 63.37</point>
+            <point>364.65 76.63</point>
+            <point>334.92 94.43</point>
+            <point>331.74 89.22</point>
+            <point>329.99 90.18</point>
+            <point>326.41 84.52</point>
+            <point>323.53 84.77</point>
+            <point>320.94 82.70</point>
+            <point>320.48 79.41</point>
+            <point>322.47 76.79</point>
+            <point>325.78 76.17</point>
+            <point>327.90 77.85</point>
+            <point>338.86 71.31</point>
+            <point>340.13 73.07</point>
+            <height>10.50</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>356.85 63.37</point>
+            <point>364.65 76.63</point>
+            <point>334.92 94.43</point>
+            <point>331.74 89.22</point>
+            <point>329.99 90.18</point>
+            <point>326.41 84.52</point>
+            <point>323.53 84.77</point>
+            <point>320.94 82.70</point>
+            <point>320.48 79.41</point>
+            <point>322.47 76.79</point>
+            <point>325.78 76.17</point>
+            <point>327.90 77.85</point>
+            <point>338.86 71.31</point>
+            <point>340.13 73.07</point>
+            <height>10.50</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_256639576 — height 20 m (assumed) -->
+    <model name="bldg_256639576">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>-363.89 -134.69</point>
+            <point>-364.01 -118.67</point>
+            <point>-368.57 -118.67</point>
+            <point>-368.60 -115.29</point>
+            <point>-417.95 -115.67</point>
+            <point>-418.33 -134.66</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>-363.89 -134.69</point>
+            <point>-364.01 -118.67</point>
+            <point>-368.57 -118.67</point>
+            <point>-368.60 -115.29</point>
+            <point>-417.95 -115.67</point>
+            <point>-418.33 -134.66</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Turf Recreation Exercise Center — height 20 m (assumed) -->
+    <model name="Turf_Recreation_Exercise_Center">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>-8.46 294.15</point>
+            <point>-82.49 292.38</point>
+            <point>-82.99 313.23</point>
+            <point>-83.06 314.04</point>
+            <point>-83.28 325.42</point>
+            <point>-83.52 335.49</point>
+            <point>-79.33 335.60</point>
+            <point>-14.40 337.15</point>
+            <point>-14.43 338.26</point>
+            <point>-11.71 338.33</point>
+            <point>-8.68 338.39</point>
+            <point>-8.56 333.37</point>
+            <point>-9.41 333.34</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>-8.46 294.15</point>
+            <point>-82.49 292.38</point>
+            <point>-82.99 313.23</point>
+            <point>-83.06 314.04</point>
+            <point>-83.28 325.42</point>
+            <point>-83.52 335.49</point>
+            <point>-79.33 335.60</point>
+            <point>-14.40 337.15</point>
+            <point>-14.43 338.26</point>
+            <point>-11.71 338.33</point>
+            <point>-8.68 338.39</point>
+            <point>-8.56 333.37</point>
+            <point>-9.41 333.34</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_283526729 — height 20 m (assumed) -->
+    <model name="bldg_283526729">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>-376.57 -177.21</point>
+            <point>-433.13 -176.80</point>
+            <point>-432.98 -154.47</point>
+            <point>-432.95 -150.59</point>
+            <point>-376.38 -150.99</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>-376.57 -177.21</point>
+            <point>-433.13 -176.80</point>
+            <point>-432.98 -154.47</point>
+            <point>-432.95 -150.59</point>
+            <point>-376.38 -150.99</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_283526731 — height 20 m (assumed) -->
+    <model name="bldg_283526731">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>-302.66 -136.57</point>
+            <point>-310.78 -136.58</point>
+            <point>-328.64 -136.26</point>
+            <point>-344.65 -136.15</point>
+            <point>-344.71 -130.70</point>
+            <point>-350.85 -124.28</point>
+            <point>-344.67 -117.68</point>
+            <point>-344.57 -112.33</point>
+            <point>-299.68 -112.83</point>
+            <point>-299.68 -129.28</point>
+            <point>-302.48 -129.34</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>-302.66 -136.57</point>
+            <point>-310.78 -136.58</point>
+            <point>-328.64 -136.26</point>
+            <point>-344.65 -136.15</point>
+            <point>-344.71 -130.70</point>
+            <point>-350.85 -124.28</point>
+            <point>-344.67 -117.68</point>
+            <point>-344.57 -112.33</point>
+            <point>-299.68 -112.83</point>
+            <point>-299.68 -129.28</point>
+            <point>-302.48 -129.34</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_301841256 — height 20 m (assumed) -->
+    <model name="bldg_301841256">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>327.50 130.12</point>
+            <point>316.57 134.11</point>
+            <point>325.09 157.08</point>
+            <point>322.08 157.01</point>
+            <point>321.76 161.90</point>
+            <point>324.38 162.21</point>
+            <point>320.06 173.81</point>
+            <point>330.45 178.93</point>
+            <point>339.09 158.48</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>327.50 130.12</point>
+            <point>316.57 134.11</point>
+            <point>325.09 157.08</point>
+            <point>322.08 157.01</point>
+            <point>321.76 161.90</point>
+            <point>324.38 162.21</point>
+            <point>320.06 173.81</point>
+            <point>330.45 178.93</point>
+            <point>339.09 158.48</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_301841257 — height 20 m (assumed) -->
+    <model name="bldg_301841257">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>432.66 72.89</point>
+            <point>420.34 80.52</point>
+            <point>440.78 113.52</point>
+            <point>446.40 110.04</point>
+            <point>453.09 105.90</point>
+            <point>443.99 91.20</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>432.66 72.89</point>
+            <point>420.34 80.52</point>
+            <point>440.78 113.52</point>
+            <point>446.40 110.04</point>
+            <point>453.09 105.90</point>
+            <point>443.99 91.20</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_301911802 — height 20 m (assumed) -->
+    <model name="bldg_301911802">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>176.48 157.46</point>
+            <point>116.92 157.29</point>
+            <point>116.89 169.84</point>
+            <point>176.44 170.02</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>176.48 157.46</point>
+            <point>116.92 157.29</point>
+            <point>116.89 169.84</point>
+            <point>176.44 170.02</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_301911805 — height 20 m (assumed) -->
+    <model name="bldg_301911805">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>-143.22 210.60</point>
+            <point>-150.27 210.67</point>
+            <point>-150.17 222.39</point>
+            <point>-143.12 222.32</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>-143.22 210.60</point>
+            <point>-150.27 210.67</point>
+            <point>-150.17 222.39</point>
+            <point>-143.12 222.32</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_936947563 — height 4 m (osm-levels) -->
+    <model name="bldg_936947563">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>-38.08 400.47</point>
+            <point>-36.05 400.57</point>
+            <point>-33.62 400.57</point>
+            <point>-33.80 407.01</point>
+            <point>-34.62 406.91</point>
+            <point>-34.08 422.85</point>
+            <point>-33.97 425.82</point>
+            <point>-34.85 426.02</point>
+            <point>-36.25 426.34</point>
+            <point>-36.92 406.91</point>
+            <point>-38.24 406.87</point>
+            <point>-38.15 403.42</point>
+            <height>3.50</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>-38.08 400.47</point>
+            <point>-36.05 400.57</point>
+            <point>-33.62 400.57</point>
+            <point>-33.80 407.01</point>
+            <point>-34.62 406.91</point>
+            <point>-34.08 422.85</point>
+            <point>-33.97 425.82</point>
+            <point>-34.85 426.02</point>
+            <point>-36.25 426.34</point>
+            <point>-36.92 406.91</point>
+            <point>-38.24 406.87</point>
+            <point>-38.15 403.42</point>
+            <height>3.50</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_936947592 — height 20 m (assumed) -->
+    <model name="bldg_936947592">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>-10.64 210.33</point>
+            <point>-18.15 210.65</point>
+            <point>-17.63 222.41</point>
+            <point>-10.13 222.08</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>-10.64 210.33</point>
+            <point>-18.15 210.65</point>
+            <point>-17.63 222.41</point>
+            <point>-10.13 222.08</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_936947593 — height 20 m (assumed) -->
+    <model name="bldg_936947593">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>-150.71 129.79</point>
+            <point>-150.59 136.08</point>
+            <point>-156.92 136.18</point>
+            <point>-157.02 129.90</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>-150.71 129.79</point>
+            <point>-150.59 136.08</point>
+            <point>-156.92 136.18</point>
+            <point>-157.02 129.90</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_936976277 — height 20 m (assumed) -->
+    <model name="bldg_936976277">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>-151.57 396.08</point>
+            <point>-151.70 400.25</point>
+            <point>-150.00 400.29</point>
+            <point>-150.10 403.45</point>
+            <point>-152.09 403.39</point>
+            <point>-152.21 407.62</point>
+            <point>-153.83 407.58</point>
+            <point>-158.19 407.45</point>
+            <point>-157.85 395.90</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>-151.57 396.08</point>
+            <point>-151.70 400.25</point>
+            <point>-150.00 400.29</point>
+            <point>-150.10 403.45</point>
+            <point>-152.09 403.39</point>
+            <point>-152.21 407.62</point>
+            <point>-153.83 407.58</point>
+            <point>-158.19 407.45</point>
+            <point>-157.85 395.90</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_1034030154 — height 20 m (assumed) -->
+    <model name="bldg_1034030154">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>54.00 456.93</point>
+            <point>54.85 456.95</point>
+            <point>60.01 457.09</point>
+            <point>59.58 473.31</point>
+            <point>53.57 473.15</point>
+            <point>53.63 470.86</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>54.00 456.93</point>
+            <point>54.85 456.95</point>
+            <point>60.01 457.09</point>
+            <point>59.58 473.31</point>
+            <point>53.57 473.15</point>
+            <point>53.63 470.86</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_1034030158 — height 20 m (assumed) -->
+    <model name="bldg_1034030158">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>124.36 216.47</point>
+            <point>124.34 229.20</point>
+            <point>113.35 229.18</point>
+            <point>113.36 216.46</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>124.36 216.47</point>
+            <point>124.34 229.20</point>
+            <point>113.35 229.18</point>
+            <point>113.36 216.46</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_1095755958 — height 20 m (assumed) -->
+    <model name="bldg_1095755958">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>114.26 380.60</point>
+            <point>114.35 374.22</point>
+            <point>107.88 374.14</point>
+            <point>107.80 380.52</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>114.26 380.60</point>
+            <point>114.35 374.22</point>
+            <point>107.88 374.14</point>
+            <point>107.80 380.52</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_1095755980 — height 20 m (assumed) -->
+    <model name="bldg_1095755980">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>233.50 389.29</point>
+            <point>233.44 393.29</point>
+            <point>230.68 393.24</point>
+            <point>230.74 389.24</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>233.50 389.29</point>
+            <point>233.44 393.29</point>
+            <point>230.68 393.24</point>
+            <point>230.74 389.24</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Hull "All-American" Marching Band Complex — height 7 m (osm-levels) -->
+    <model name="Hull__All_American__Marching_Band_Complex">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>-87.58 311.33</point>
+            <point>-89.27 311.26</point>
+            <point>-102.50 311.02</point>
+            <point>-104.10 311.00</point>
+            <point>-104.14 313.54</point>
+            <point>-104.38 325.28</point>
+            <point>-98.11 325.41</point>
+            <point>-87.84 325.61</point>
+            <point>-87.83 325.33</point>
+            <point>-86.96 325.34</point>
+            <point>-83.28 325.42</point>
+            <point>-83.06 314.04</point>
+            <point>-85.52 313.99</point>
+            <point>-87.63 313.95</point>
+            <height>7.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>-87.58 311.33</point>
+            <point>-89.27 311.26</point>
+            <point>-102.50 311.02</point>
+            <point>-104.10 311.00</point>
+            <point>-104.14 313.54</point>
+            <point>-104.38 325.28</point>
+            <point>-98.11 325.41</point>
+            <point>-87.84 325.61</point>
+            <point>-87.83 325.33</point>
+            <point>-86.96 325.34</point>
+            <point>-83.28 325.42</point>
+            <point>-83.06 314.04</point>
+            <point>-85.52 313.99</point>
+            <point>-87.63 313.95</point>
+            <height>7.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- bldg_1196645144 — height 20 m (assumed) -->
+    <model name="bldg_1196645144">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><polyline>
+            <point>30.50 245.34</point>
+            <point>12.20 245.40</point>
+            <point>12.31 282.71</point>
+            <point>30.61 282.66</point>
+            <height>20.00</height>
+          </polyline></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><polyline>
+            <point>30.50 245.34</point>
+            <point>12.20 245.40</point>
+            <point>12.31 282.71</point>
+            <point>30.61 282.66</point>
+            <height>20.00</height>
+          </polyline></geometry>
+          <material><ambient>0.40 0.40 0.45 1</ambient><diffuse>0.52 0.52 0.58 1</diffuse></material>
         </visual>
       </link>
     </model>
