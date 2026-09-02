@@ -165,7 +165,7 @@ topics:
 .PHONY: state
 state:
 	$(COMPOSE_ACTIVE) exec mission bash -ic \
-		'ros2 topic echo --once $${PX4_STATUS_TOPIC:-/fmu/out/vehicle_status}'
+		'ros2 topic echo --once $${PX4_STATUS_TOPIC:-/fmu/out/vehicle_status_v2}'
 
 # What the mission controller thinks it is doing. Console logs are not
 # telemetry; this is the topic to watch during a flight.
@@ -183,9 +183,9 @@ check-px4-topics:
 	@echo ""
 	@echo "==> Topics this mission is configured to use:"
 	@$(COMPOSE_ACTIVE) exec mission bash -ic \
-		'echo "  $${PX4_STATUS_TOPIC:-/fmu/out/vehicle_status}"; \
-		 echo "  $${PX4_LOCAL_POSITION_TOPIC:-/fmu/out/vehicle_local_position}"; \
-		 echo "  $${PX4_BATTERY_TOPIC:-/fmu/out/battery_status}"; \
+		'echo "  $${PX4_STATUS_TOPIC:-/fmu/out/vehicle_status_v2}"; \
+		 echo "  $${PX4_LOCAL_POSITION_TOPIC:-/fmu/out/vehicle_local_position_v1}"; \
+		 echo "  $${PX4_BATTERY_TOPIC:-/fmu/out/battery_status_v1}"; \
 		 echo "  $${PX4_LAND_DETECTED_TOPIC:-/fmu/out/vehicle_land_detected}"'
 	@echo ""
 	@echo "If the lists disagree, override PX4_*_TOPIC in docker/.env — ALL FOUR."

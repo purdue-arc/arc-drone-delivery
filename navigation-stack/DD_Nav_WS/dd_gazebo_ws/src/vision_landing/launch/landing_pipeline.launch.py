@@ -110,17 +110,26 @@ def generate_launch_description():
                         'controller did what the PX4 log shows it doing.'),
         DeclareLaunchArgument('bag_dir', default_value='mission_bag'),
 
-        # PX4 topic names. Defaults match the firmware in
-        # navigation-stack/PX4-Autopilot, which publishes UNVERSIONED names.
-        # A release that publishes vehicle_status_v2 / …_v1 needs all four
-        # overridden together — a partial override is the failure that looks
-        # exactly like a dead DDS link.
+        # PX4 topic names.
+        #
+        # PX4 v1.16's uxrce_dds_client appends a version suffix to exactly
+        # those messages that have a versioned definition in msg/versioned/,
+        # and leaves the others bare. So the set is MIXED, and that is not a
+        # mistake:
+        #     vehicle_status_v2, vehicle_local_position_v1, battery_status_v1
+        #     vehicle_land_detected, vehicle_global_position   (no suffix)
+        #
+        # Do not "fix" the inconsistency by making them uniform. Verified
+        # against the running SITL with `ros2 topic list | grep fmu/out`;
+        # dds_topics.yaml lists the BASE names and is not what appears on the
+        # wire. A partial override is the failure that looks exactly like a
+        # dead DDS link, so if the aircraft differs, override all four.
         DeclareLaunchArgument('status_topic',
-                              default_value='/fmu/out/vehicle_status'),
+                              default_value='/fmu/out/vehicle_status_v2'),
         DeclareLaunchArgument('local_position_topic',
-                              default_value='/fmu/out/vehicle_local_position'),
+                              default_value='/fmu/out/vehicle_local_position_v1'),
         DeclareLaunchArgument('battery_topic',
-                              default_value='/fmu/out/battery_status'),
+                              default_value='/fmu/out/battery_status_v1'),
         DeclareLaunchArgument('land_detected_topic',
                               default_value='/fmu/out/vehicle_land_detected'),
 

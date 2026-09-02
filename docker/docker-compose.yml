@@ -126,7 +126,7 @@ services:
         require_plan_to_transit:=$${REQUIRE_PLAN_TO_TRANSIT:-true}
         record:=$${RECORD:-false}
         bag_dir:=$${BAG_DIR:-/home/arc/arc_ws/bags/mission}
-        status_topic:=$${PX4_STATUS_TOPIC:-/fmu/out/vehicle_status}
-        local_position_topic:=$${PX4_LOCAL_POSITION_TOPIC:-/fmu/out/vehicle_local_position}
-        battery_topic:=$${PX4_BATTERY_TOPIC:-/fmu/out/battery_status}
+        status_topic:=$${PX4_STATUS_TOPIC:-/fmu/out/vehicle_status_v2}
+        local_position_topic:=$${PX4_LOCAL_POSITION_TOPIC:-/fmu/out/vehicle_local_position_v1}
+        battery_topic:=$${PX4_BATTERY_TOPIC:-/fmu/out/battery_status_v1}
         land_detected_topic:=$${PX4_LAND_DETECTED_TOPIC:-/fmu/out/vehicle_land_detected}

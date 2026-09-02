@@ -141,9 +141,9 @@ services:
       # publishes UNVERSIONED names. If the aircraft's Pixhawk runs a release
       # that appends _v1/_v2, override ALL FOUR here — a partial override
       # looks exactly like a dead DDS link.
-      PX4_STATUS_TOPIC: ${PX4_STATUS_TOPIC:-/fmu/out/vehicle_status}
-      PX4_LOCAL_POSITION_TOPIC: ${PX4_LOCAL_POSITION_TOPIC:-/fmu/out/vehicle_local_position}
-      PX4_BATTERY_TOPIC: ${PX4_BATTERY_TOPIC:-/fmu/out/battery_status}
+      PX4_STATUS_TOPIC: ${PX4_STATUS_TOPIC:-/fmu/out/vehicle_status_v2}
+      PX4_LOCAL_POSITION_TOPIC: ${PX4_LOCAL_POSITION_TOPIC:-/fmu/out/vehicle_local_position_v1}
+      PX4_BATTERY_TOPIC: ${PX4_BATTERY_TOPIC:-/fmu/out/battery_status_v1}
       PX4_LAND_DETECTED_TOPIC: ${PX4_LAND_DETECTED_TOPIC:-/fmu/out/vehicle_land_detected}
 
   # --------------------------------------------------------------------------

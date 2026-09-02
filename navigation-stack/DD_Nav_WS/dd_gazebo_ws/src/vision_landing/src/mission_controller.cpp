@@ -91,6 +91,17 @@ public:
     tag_lost_abort_sec_     = declare_parameter("tag_lost_abort_sec", 2.0);
     land_commit_height_m_   = static_cast<float>(declare_parameter("land_commit_height_m", 1.0));
     max_land_retries_       = static_cast<int>(declare_parameter("max_land_retries", 2));
+    // How long PX4's ground_contact / maybe_landed must hold, below the commit
+    // height, before touchdown is called without a full `landed` flag.
+    contact_confirm_sec_    = declare_parameter("contact_confirm_sec", 2.0);
+    // Touchdown by stalled descent: we are commanding the aircraft down at
+    // descent_rate_mps and it has stopped descending. Held this long, near the
+    // ground, that means it is ON the ground. See the LAND state.
+    descent_stall_sec_      = declare_parameter("descent_stall_sec", 3.0);
+    descent_stall_vz_       = static_cast<float>(
+      declare_parameter("descent_stall_vz", 0.05));
+    descent_stall_height_m_ = static_cast<float>(
+      declare_parameter("descent_stall_height_m", 0.30));
 
     // ── delivery ────────────────────────────────────────────────────────────
     // Destination as GPS. NaN (the default) means "no delivery" — the mission
@@ -143,27 +154,54 @@ public:
       declare_parameter("require_plan_to_transit", true);
     plan_wait_timeout_sec_ = declare_parameter("plan_wait_timeout_sec", 30.0);
 
+    // How far ahead of the aircraft a Nav2 goal may be placed.
+    //
+    // Nav2's global costmap is a ROLLING WINDOW centred on the vehicle, so it
+    // only ever covers +/- half its width. Handing it the delivery point
+    // directly works only while that point is inside the window; past that
+    // the planner rejects the goal outright —
+    //   "Goal Coordinates of (39.00, 99.01) was outside bounds"
+    // — no path is ever produced, and a delivery beyond half the costmap
+    // width can never be planned no matter how long the mission waits.
+    //
+    // So the goal is a CARROT: the delivery point when it is close enough,
+    // otherwise a point this far along the bearing to it, re-issued as the
+    // aircraft advances. Keep it comfortably inside half the costmap width
+    // (currently 120 m, so 60 m of reach) with margin for the vehicle
+    // drifting off the window centre.
+    nav2_goal_max_range_m_ =
+      static_cast<float>(declare_parameter("nav2_goal_max_range_m", 45.0));
+    // Re-publish the carrot once the aircraft has closed this much ground.
+    nav2_goal_refresh_m_ =
+      static_cast<float>(declare_parameter("nav2_goal_refresh_m", 15.0));
+
     // PX4 topic names.
     //
-    // PX4 v1.16 introduced versioned message DEFINITIONS (msg/versioned/), but
-    // whether the uxrce_dds_client publishes them under a versioned TOPIC name
-    // (vehicle_status_v2) or the plain one depends on the release. The PX4 in
-    // navigation-stack/PX4-Autopilot publishes the PLAIN names — verified in
-    // src/modules/uxrce_dds_client/dds_topics.yaml, which contains no _v
-    // suffix anywhere, and in the generated dds_topics.h.
+    // PX4 v1.16's uxrce_dds_client appends a version suffix at runtime to
+    // exactly those messages that have a versioned definition in
+    // msg/versioned/, and leaves every other topic bare. The resulting set is
+    // MIXED, and the inconsistency below is correct, not an oversight:
+    //     /fmu/out/vehicle_status_v2
+    //     /fmu/out/vehicle_local_position_v1
+    //     /fmu/out/battery_status_v1
+    //     /fmu/out/vehicle_land_detected          (no suffix)
+    //     /fmu/out/vehicle_global_position        (no suffix)
+    //     /fmu/out/gimbal_device_attitude_status  (no suffix)
     //
-    // These defaults therefore match the firmware in this repo. If the
-    // aircraft's Pixhawk runs a different release, override all four together;
-    // a partial override is the failure that looks like a dead DDS link.
-    // Check the aircraft with: ros2 topic list | grep fmu/out
+    // dds_topics.yaml lists the BASE names and is NOT what appears on the
+    // wire — reading it alone will convince you these should all be bare, and
+    // the mission will then sit in preflight forever receiving nothing, which
+    // is indistinguishable from a dead DDS link. Verified empirically against
+    // the running firmware; check any new aircraft the same way:
+    //   ros2 topic list | grep fmu/out    (or: make check-px4-topics)
     status_topic_ = declare_parameter<std::string>(
-      "status_topic", "/fmu/out/vehicle_status");
+      "status_topic", "/fmu/out/vehicle_status_v2");
     local_pos_topic_ = declare_parameter<std::string>(
-      "local_position_topic", "/fmu/out/vehicle_local_position");
+      "local_position_topic", "/fmu/out/vehicle_local_position_v1");
     land_detected_topic_ = declare_parameter<std::string>(
       "land_detected_topic", "/fmu/out/vehicle_land_detected");
     battery_topic_ = declare_parameter<std::string>(
-      "battery_topic", "/fmu/out/battery_status");
+      "battery_topic", "/fmu/out/battery_status_v1");
     const auto & status_topic        = status_topic_;
     const auto & local_pos_topic     = local_pos_topic_;
     const auto & land_detected_topic = land_detected_topic_;
@@ -211,6 +249,10 @@ public:
     gimbal_settle_rad_ = static_cast<float>(
       declare_parameter("gimbal_settle_rad", 0.087));   // ~5 deg
     gimbal_status_stale_sec_ = declare_parameter("gimbal_status_stale_sec", 1.0);
+    // Smallest commanded tilt that may be used to verify the feedback.
+    // Must be well outside the gimbal's rest position.
+    gimbal_verify_min_rad_ = static_cast<float>(
+      declare_parameter("gimbal_verify_min_rad", 0.35));   // ~20 deg
 
 
     setpoint_pub_ = create_publisher<px4_msgs::msg::TrajectorySetpoint>(
@@ -287,6 +329,7 @@ private:
     current_ned_y_   = msg->y;
     current_ned_z_   = msg->z;
     current_heading_ = msg->heading;
+    current_vz_      = msg->vz;
     pos_valid_       = msg->xy_valid && msg->z_valid;
     pos_received_    = true;
     last_pos_time_   = now();
@@ -294,7 +337,16 @@ private:
 
   void land_detect_callback(const px4_msgs::msg::VehicleLandDetected::SharedPtr msg)
   {
-    landed_detected_ = msg->landed;
+    landed_detected_  = msg->landed;
+    // PX4 stages its land detection: ground_contact -> maybe_landed -> landed.
+    // The last stage requires the thrust setpoint to fall away, which does not
+    // happen while we are still holding an OFFBOARD setpoint — see the note in
+    // the LAND state. The earlier stages do trip, so they are kept as a
+    // secondary touchdown signal.
+    ground_contact_   = msg->ground_contact;
+    maybe_landed_     = msg->maybe_landed;
+    if (!(ground_contact_ || maybe_landed_)) contact_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    else if (contact_since_.nanoseconds() == 0) contact_since_ = now();
   }
 
   void battery_callback(const px4_msgs::msg::BatteryStatus::SharedPtr msg)
@@ -325,13 +377,40 @@ private:
     gimbal_measured_rad_ = vision_landing::quat_pitch(msg->q.data());
     gimbal_status_time_  = now();
     gimbal_status_seen_  = true;
+
+    // TRUST, BUT VERIFY.
+    //
+    // A gimbal that reports an attitude is not necessarily a gimbal that
+    // reports OUR attitude. The gazebo-classic SITL gimbal publishes this
+    // topic while ignoring the pitch command entirely: commanded -45 deg,
+    // reported +5.7 deg, forever. Treating that as truth is worse than having
+    // no feedback at all — it rejects every detection as "taken mid-slew" and
+    // the aircraft searches until it gives up.
+    //
+    // So the feedback has to earn its authority: until the measured angle has
+    // matched a commanded angle at least once, it is reported but not acted
+    // on, and the mission behaves exactly as it did before this was added.
+    // Verify only against a command that is meaningfully tilted. A level
+    // command (0 rad) is matched by a gimbal that is simply stuck level —
+    // which is exactly the SITL failure this guard exists for, so allowing
+    // 0 deg to certify the feedback certifies precisely the broken case.
+    if (!gimbal_feedback_trusted_ &&
+        std::fabs(current_gimbal_) > gimbal_verify_min_rad_ &&
+        std::fabs(gimbal_measured_rad_ - current_gimbal_) <= gimbal_settle_rad_) {
+      gimbal_feedback_trusted_ = true;
+      RCLCPP_INFO(get_logger(),
+        "Gimbal feedback verified (measured %.0f deg matches commanded %.0f deg) "
+        "— using the measured angle from here",
+        gimbal_measured_rad_ * 180.0f / static_cast<float>(M_PI),
+        current_gimbal_ * 180.0f / static_cast<float>(M_PI));
+    }
   }
 
-  // The tilt angle to project detections with: the measured one when the
-  // gimbal is reporting, the commanded one otherwise.
+  // The tilt angle to project detections with: the measured one once the
+  // feedback has proved it tracks, the commanded one otherwise.
   float effective_gimbal_rad() const
   {
-    if (gimbal_feedback_fresh()) return gimbal_measured_rad_;
+    if (gimbal_feedback_trusted_ && gimbal_feedback_fresh()) return gimbal_measured_rad_;
     return current_gimbal_;
   }
 
@@ -343,11 +422,15 @@ private:
 
   // True once the gimbal has actually reached the commanded angle. Detections
   // taken mid-slew project through an angle the camera was not at, which puts
-  // the landing target metres from the tag. Without feedback we cannot tell,
-  // so we accept them — the old behaviour — rather than stalling the mission.
+  // the landing target metres from the tag.
+  //
+  // Only ever gates anything once the feedback has been verified against a
+  // command (see gimbal_status_callback). With no feedback, or feedback that
+  // has never tracked, detections are accepted — stalling the mission on a
+  // gimbal we cannot read is the worse failure.
   bool gimbal_settled() const
   {
-    if (!gimbal_feedback_fresh()) return true;
+    if (!gimbal_feedback_trusted_ || !gimbal_feedback_fresh()) return true;
     return std::fabs(gimbal_measured_rad_ - current_gimbal_) <= gimbal_settle_rad_;
   }
 
@@ -990,12 +1073,31 @@ private:
           break;
         }
 
-        // Publish the goal once on entry, not every tick. nav2_path_bridge
-        // replans on its own timer; re-sending at 20 Hz swamped the planner
-        // and starved it of the chance to actually return a path.
-        if (use_nav2_ && !transit_goal_sent_) {
-          publish_transit_goal(delivery_ned_x_, delivery_ned_y_);
-          transit_goal_sent_ = true;
+        // Publish the goal on entry and then only as the aircraft closes
+        // ground, not every tick: nav2_path_bridge replans on its own timer,
+        // and re-sending at 20 Hz swamped the planner and starved it of the
+        // chance to actually return a path.
+        //
+        // The goal is clamped into the costmap's rolling window (see
+        // nav2_goal_max_range_m) — an unclamped far goal is rejected outright
+        // and no plan is ever produced.
+        if (use_nav2_) {
+          const float moved = std::hypot(current_ned_x_ - last_goal_pub_x_,
+                                         current_ned_y_ - last_goal_pub_y_);
+          if (!transit_goal_sent_ || moved > nav2_goal_refresh_m_) {
+            float gx = delivery_ned_x_, gy = delivery_ned_y_;
+            if (dist > nav2_goal_max_range_m_) {
+              gx = current_ned_x_ + (dx / dist) * nav2_goal_max_range_m_;
+              gy = current_ned_y_ + (dy / dist) * nav2_goal_max_range_m_;
+              RCLCPP_INFO(get_logger(),
+                "Nav2 goal clamped to %.0f m ahead (delivery is %.0f m out, "
+                "beyond the costmap window)", nav2_goal_max_range_m_, dist);
+            }
+            publish_transit_goal(gx, gy);
+            transit_goal_sent_ = true;
+            last_goal_pub_x_ = current_ned_x_;
+            last_goal_pub_y_ = current_ned_y_;
+          }
         }
 
         // Steer toward the planned path when it is fresh, otherwise straight
@@ -1369,10 +1471,71 @@ private:
         RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 500,
           "LAND: alt=%.2f m  landed=%d", height_above_home(), (int)landed_detected_);
 
+        // Touchdown, in order of confidence.
+        //
+        // PX4's own `landed` flag is the authority, but it will not trip while
+        // this node is still streaming an OFFBOARD setpoint: the position
+        // controller keeps thrust up to hold x/y, and PX4's last land-detection
+        // stage waits for thrust to fall away. Measured in SITL, the aircraft
+        // sat on the pad at 0.03 m with landed=false for the full 90 s
+        // timeout, and every landing completed under AUTO.LAND instead of
+        // under mission control.
+        //
+        // So below the commit height we also accept PX4's EARLIER stages,
+        // ground_contact / maybe_landed, held for contact_confirm_sec. Those
+        // do trip, and combined with "below commit height and no longer
+        // descending" they are a sound touchdown call. The 90 s failsafe stays
+        // as the backstop.
+        const bool contact_held =
+          contact_since_.nanoseconds() != 0 &&
+          (now() - contact_since_).seconds() > contact_confirm_sec_;
+
+        // Touchdown by stalled descent.
+        //
+        // This is the signal that actually works. While this node streams an
+        // OFFBOARD setpoint, PX4 suppresses EVERY stage of its land detector —
+        // measured in SITL, the aircraft sat on the pad at 0.03 m with
+        // landed, maybe_landed AND ground_contact all false for the full 90 s
+        // timeout, and only reported ground contact once the mission stopped
+        // commanding. So waiting for PX4 to tell us we have landed is waiting
+        // for something that cannot happen until we stop asking.
+        //
+        // What we can see for ourselves: we are commanding a descent at
+        // descent_rate_mps, we are close to the pad, and we are not going
+        // down. That is the ground.
+        const bool descending_commanded = height_above_home() <= land_commit_height_m_;
+        const bool not_moving_down =
+          descending_commanded &&
+          height_above_home() < descent_stall_height_m_ &&
+          std::fabs(current_vz_) < descent_stall_vz_;
+        if (!not_moving_down) {
+          descent_stalled_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+        } else if (descent_stalled_since_.nanoseconds() == 0) {
+          descent_stalled_since_ = now();
+        }
+        const bool descent_stalled =
+          descent_stalled_since_.nanoseconds() != 0 &&
+          (now() - descent_stalled_since_).seconds() > descent_stall_sec_;
+
         if (landed_detected_) {
           disarm();
           transition(State::LANDED);
           RCLCPP_INFO(get_logger(), "Touchdown confirmed — disarmed. Mission complete.");
+        } else if (contact_held && height_above_home() < land_commit_height_m_) {
+          disarm();
+          transition(State::LANDED);
+          RCLCPP_INFO(get_logger(),
+            "Touchdown on ground contact (%.2f m, contact held %.1f s) — disarmed. "
+            "Mission complete.", height_above_home(),
+            (now() - contact_since_).seconds());
+        } else if (descent_stalled) {
+          disarm();
+          transition(State::LANDED);
+          RCLCPP_INFO(get_logger(),
+            "Touchdown: commanding descent at %.2f m/s but stopped descending "
+            "at %.2f m for %.1f s — disarmed. Mission complete.",
+            descent_rate_mps_, height_above_home(),
+            (now() - descent_stalled_since_).seconds());
         } else if (time_in_state() > 90.0) {
           // Still airborne long after the descent should have finished.
           RCLCPP_WARN(get_logger(), "No touchdown detection — handing off to PX4 AUTO.LAND");
@@ -1436,7 +1599,8 @@ private:
   double winch_secure_timeout_sec_;
   bool   require_plan_to_transit_;
   double plan_wait_timeout_sec_;
-  float  gimbal_settle_rad_;
+  float  nav2_goal_max_range_m_, nav2_goal_refresh_m_;
+  float  gimbal_settle_rad_, gimbal_verify_min_rad_;
   double gimbal_status_stale_sec_;
   std::string status_topic_, local_pos_topic_, land_detected_topic_, battery_topic_;
   // NOTE: there is deliberately no `return_home` parameter. It used to be
@@ -1455,6 +1619,12 @@ private:
   float  current_ned_x_ = 0, current_ned_y_ = 0, current_ned_z_ = 0, current_heading_ = 0;
   rclcpp::Time last_pos_time_{0, 0, RCL_ROS_TIME};
   bool   landed_detected_ = false;
+  bool   ground_contact_ = false, maybe_landed_ = false;
+  float  current_vz_ = 0.0f;
+  rclcpp::Time descent_stalled_since_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time contact_since_{0, 0, RCL_ROS_TIME};
+  double contact_confirm_sec_, descent_stall_sec_;
+  float  descent_stall_vz_, descent_stall_height_m_;
   bool   battery_received_ = false;
   uint8_t battery_warning_ = 0;
   float  battery_remaining_ = -1.0f;
@@ -1467,6 +1637,7 @@ private:
 
   // gimbal feedback
   bool   gimbal_status_seen_ = false;
+  bool   gimbal_feedback_trusted_ = false;
   float  gimbal_measured_rad_ = 0.0f;
   rclcpp::Time gimbal_status_time_{0, 0, RCL_ROS_TIME};
 
@@ -1495,6 +1666,7 @@ private:
   nav_msgs::msg::Path path_;
   rclcpp::Time last_path_time_{0, 0, RCL_ROS_TIME};
   bool   ever_planned_ = false;
+  float  last_goal_pub_x_ = 0, last_goal_pub_y_ = 0;
 
   // failsafe / payload securing
   std::string failsafe_reason_;

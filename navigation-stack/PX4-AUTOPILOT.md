@@ -40,10 +40,28 @@ Getting this wrong is not a crash. The controller simply never receives status,
 position or battery, sits in preflight forever reporting no telemetry, and the
 aircraft never arms — which looks exactly like a dead DDS link.
 
-**The version in use publishes UNVERSIONED names.** Verified in
-`src/modules/uxrce_dds_client/dds_topics.yaml`, which contains no `_v` suffix
-on any topic, and in the generated `dds_topics.h`. Those are the defaults in
-`landing_pipeline.launch.py`.
+**The version in use publishes a MIXED set**, and this is the single easiest
+thing to get wrong here. The `uxrce_dds_client` appends a version suffix at
+runtime to exactly those messages that have a definition in `msg/versioned/`,
+and leaves the rest bare:
+
+```
+/fmu/out/vehicle_status_v2             versioned
+/fmu/out/vehicle_local_position_v1     versioned
+/fmu/out/battery_status_v1             versioned
+/fmu/out/vehicle_land_detected         bare
+/fmu/out/vehicle_global_position       bare
+/fmu/out/gimbal_device_attitude_status bare
+```
+
+`src/modules/uxrce_dds_client/dds_topics.yaml` lists the **base** names and is
+not what appears on the wire. Reading it alone will convince you every topic
+should be unqualified; the mission will then sit in preflight forever, which
+looks exactly like a dead DDS link. Verify empirically, always:
+
+```bash
+ros2 topic list | grep fmu/out
+```
 
 ### Recording the version you build against
 
@@ -60,7 +78,7 @@ git rev-parse HEAD
 |---|---|
 | Tag / release | _record it here_ |
 | Commit | _record it here_ |
-| Publishes versioned topic names | **no** (verified) |
+| Publishes versioned topic names | **mixed** — see above (verified against running SITL) |
 | `px4_msgs` in this repo matches its message definitions | yes (verified byte-for-byte for the messages the mission uses) |
 
 ### Checking against the actual aircraft
