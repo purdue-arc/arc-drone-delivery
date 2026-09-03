@@ -63,7 +63,7 @@ def generate_launch_description():
         DeclareLaunchArgument('require_plan_to_transit', default_value='true'),
         DeclareLaunchArgument('transit_speed_mps', default_value='4.0'),
         DeclareLaunchArgument('transit_timeout_sec', default_value='300.0'),
-        DeclareLaunchArgument('transit_timeout_margin', default_value='3.5'),
+        DeclareLaunchArgument('transit_timeout_margin', default_value='5.0'),
         DeclareLaunchArgument('record', default_value='false'),
         DeclareLaunchArgument('status_topic',
                               default_value='/fmu/out/vehicle_status_v2'),

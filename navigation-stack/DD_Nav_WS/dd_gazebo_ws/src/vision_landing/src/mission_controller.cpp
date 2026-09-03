@@ -126,8 +126,10 @@ public:
     // The margin is large because the commanded speed is not the achieved
     // speed: the aircraft chases a setpoint a few metres ahead and PX4 decides
     // how fast to close it, which came out near 1.7 m/s for a 4 m/s command.
-    // A detour around an obstacle costs more still.
-    transit_timeout_margin_ = declare_parameter("transit_timeout_margin", 3.5);
+    // A detour around an obstacle costs more still, and climbing over one
+    // costs more again — a run that had to climb from 15 m to 39 m and back
+    // finished 31 m short on a 3.5x margin.
+    transit_timeout_margin_ = declare_parameter("transit_timeout_margin", 5.0);
     // Hover altitude for the winch drop. The aircraft stays here and lowers
     // the package; it never lands at the delivery address.
     winch_hover_height_m_ = static_cast<float>(declare_parameter("winch_hover_height_m", 12.0));
@@ -224,6 +226,10 @@ public:
     // Shortest leg worth asking Nav2 to plan. Below this the move is direct
     // but still costmap-checked — see fly_guided_leg.
     min_route_m_ = static_cast<float>(declare_parameter("min_route_m", 8.0));
+    // How long a destination may read as blocked before the leg is abandoned.
+    target_blocked_abort_sec_ = declare_parameter("target_blocked_abort_sec", 20.0);
+    // How long the best distance achieved may stagnate before giving up.
+    no_progress_sec_ = declare_parameter("no_progress_sec", 90.0);
 
     // PX4 topic names.
     //
@@ -842,14 +848,47 @@ private:
         last_goal_pub_y_ = current_ned_y_;
       }
 
-      // 2. No costmap means nothing to check a route against, so there is no
+      // 2. Is the DESTINATION itself reachable?
+      //
+      //    A goal inside a building is not a route-planning problem, it is an
+      //    input error, and it does not fail cleanly: Nav2 cannot plan to a
+      //    lethal cell, so it returns nothing or a partial path, the safety
+      //    check refuses it, the aircraft backs off, replans, approaches, and
+      //    repeats until the leg times out. Measured: a delivery point set
+      //    inside the Morgan J. Burke Aquatic Center produced exactly that,
+      //    oscillating between 8 and 58 m from the goal for the whole leg.
+      //
+      //    Say so plainly instead. It is unfixable in the air, so there is no
+      //    point burning the deadline discovering that repeatedly.
+      if (costmap_fresh() && point_blocked(tgt_n, tgt_e)) {
+        if (target_blocked_since_.nanoseconds() == 0) target_blocked_since_ = now();
+        const double held = (now() - target_blocked_since_).seconds();
+        if (held > target_blocked_abort_sec_) {
+          RCLCPP_ERROR(get_logger(),
+            "%s: the destination NED (%.1f, %.1f) is itself inside an obstacle. "
+            "No route can exist to it. Check delivery_lat/delivery_lon — a "
+            "delivery point must be in open ground, not on a building.",
+            leg, tgt_n, tgt_e);
+          enter_failsafe_land("destination_unreachable");
+          return false;
+        }
+        char why[200];
+        std::snprintf(why, sizeof(why),
+          "destination itself is inside an obstacle (%.0f/%.0f s before abort)",
+          held, target_blocked_abort_sec_);
+        hold(why);
+        return false;
+      }
+      target_blocked_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+
+      // 3. No costmap means nothing to check a route against, so there is no
       //    obstacle guarantee to be had. Hold rather than guess.
       if (require_costmap_to_fly_ && !costmap_fresh()) {
         hold("no fresh costmap — cannot confirm the route is clear");
         return false;
       }
 
-      // 3. A plan must exist. Never having had one means the planner, the
+      // 4. A plan must exist. Never having had one means the planner, the
       //    costmap or the lidar is absent, and a straight line would be flown
       //    blind for the whole leg.
       float aim_n = tgt_n, aim_e = tgt_e;
@@ -865,7 +904,7 @@ private:
           leg);
       }
 
-      // 4. The plan was clear when it was made. Re-check it against the
+      // 5. The plan was clear when it was made. Re-check it against the
       //    costmap as it is NOW, out to the lookahead. This is what makes
       //    "never fly into a detected obstacle" true rather than hoped for.
       float hn = 0.0f, he = 0.0f;
@@ -878,7 +917,7 @@ private:
         return false;
       }
 
-      // 5. And the specific step about to be commanded.
+      // 6. And the specific step about to be commanded.
       float sn = current_ned_x_ + (aim_n - current_ned_x_);
       float se = current_ned_y_ + (aim_e - current_ned_y_);
       if (segment_blocked(current_ned_x_, current_ned_y_, sn, se, &hn, &he)) {
@@ -893,6 +932,22 @@ private:
       const float adx = aim_n - current_ned_x_;
       const float ady = aim_e - current_ned_y_;
       const float adist = std::max(std::hypot(adx, ady), 1e-3f);
+      // Progress watchdog. Detouring means the distance to the goal legitimately
+      // grows for a while, so distance alone cannot judge progress — but the
+      // BEST distance achieved so far should keep improving. If it has not for
+      // no_progress_sec, the aircraft is circling something it cannot get past
+      // and will otherwise do so until the deadline.
+      if (dist < best_dist_ - 2.0f) { best_dist_ = dist; best_dist_at_ = now(); }
+      else if (best_dist_at_.nanoseconds() != 0 &&
+               (now() - best_dist_at_).seconds() > no_progress_sec_) {
+        RCLCPP_ERROR(get_logger(),
+          "%s: no progress for %.0f s — closest approach still %.0f m. The "
+          "route around this obstacle is not being found; giving up rather "
+          "than circling until the deadline.", leg, no_progress_sec_, best_dist_);
+        enter_failsafe_land("no_progress");
+        return false;
+      }
+
       const float carrot = std::min(transit_speed_mps_ * TICK_SEC * 20.0f, adist);
       publish_setpoint(current_ned_x_ + (adx / adist) * carrot,
                        current_ned_y_ + (ady / adist) * carrot,
@@ -1309,6 +1364,9 @@ private:
           if (delivering()) {
             transit_ticks_ = 0;
             transit_goal_sent_ = false;
+            best_dist_ = 1e9f;
+            best_dist_at_ = now();
+            target_blocked_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
             transition(State::TRANSIT);
             RCLCPP_INFO(get_logger(),
               "TAKEOFF done (%.2f m) — TRANSIT to delivery point, %.0f m",
@@ -1599,6 +1657,9 @@ private:
           // planning to the delivery point we are standing on.
           transit_goal_sent_ = false;
           ever_planned_ = false;
+          best_dist_ = 1e9f;
+          best_dist_at_ = now();
+          target_blocked_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
           transition(State::RETURN);
           RCLCPP_INFO(get_logger(),
             "Package delivered and winch stowed — RETURN to launch");
@@ -1876,6 +1937,10 @@ private:
   float  lookahead_check_m_;
   double blocked_escape_sec_;
   float  escape_climb_m_, min_route_m_;
+  double target_blocked_abort_sec_, no_progress_sec_;
+  rclcpp::Time target_blocked_since_{0, 0, RCL_ROS_TIME};
+  float  best_dist_ = 1e9f;
+  rclcpp::Time best_dist_at_{0, 0, RCL_ROS_TIME};
   rclcpp::Time blocked_since_{0, 0, RCL_ROS_TIME};
   nav_msgs::msg::OccupancyGrid costmap_;
   rclcpp::Time last_costmap_time_{0, 0, RCL_ROS_TIME};

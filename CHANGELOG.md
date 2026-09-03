@@ -105,6 +105,121 @@ complete mission in simulation. Nothing in it has ever run on real hardware.
 
 # Entries
 
+## 2026-09-02 (night) — Lidar moved under the aircraft, and four bugs that hid behind each other
+
+**In one sentence:** the simulated lidar now sits where it really sits — under
+the airframe — and getting a clean flight out of that exposed a transposed
+campus, a costmap that erased itself, a costmap that could not forget, and a
+delivery point inside a building.
+
+### What changed
+
+**The lidar is mounted `under_drone`.** It was 0.15 m above the airframe, which
+kept the body out of the beam and was therefore easier and wrong. It now sits
+below, matching the aircraft. Measured consequences: about **three times as many
+returns per scan** (500–700 against 130), because rays the body used to block
+now pass freely — and the airframe occludes a cone directly above the sensor.
+The modified model is vendored at `sim/models/` so it survives a clone.
+
+**The campus was transposed, and every earlier avoidance result was worthless.**
+Gazebo's world frame here is ENU: **+x is east, +y is north**. The world
+generator wrote every building footprint as *(north, east)*, mirroring the
+whole campus across the diagonal. The aircraft flew the correct GPS route —
+that is computed in the flight controller's own frame and owes nothing to the
+world file — so the buildings simply sat where the aircraft never went. Flights
+looked clean and proved nothing.
+
+Verified empirically this time rather than assumed: moving the model to
+gazebo x = +60 moved its **longitude** 60 m east and left latitude unchanged.
+
+**This corrects an earlier claim in this log.** The 2026-09-02 entry below says
+the aircraft "routed around" the tall buildings. It did not. They were never on
+its path.
+
+**The obstacle filter was erasing the map it was supposed to build.** It
+published its output already transformed into the map frame, which seemed
+tidy. Nav2 derives the *sensor origin* from a cloud's frame, and raytraces from
+there to every return to clear the cells between — so labelled `map`, every
+scan raytraced from the landing pad and wiped everything along the way,
+including the building ahead. **The aircraft flew into the Turf Recreation
+Center at 15 m and crashed.** The filter now emits points in the sensor frame;
+only the height *test* uses the map frame.
+
+**Marking and clearing now use different data.** With both taken from the
+flight-level cloud, the aircraft correctly refused to fly into a 20 m building,
+climbed to 39 m to clear it — and stayed blocked, because at 39 m the building
+was outside the flight-level band, so there were no returns left to raytrace
+through cells that were already marked. It sat there until the leg timed out.
+Marking now comes from the flight-level cloud, clearing from the raw cloud.
+
+**The map is persistent, and no longer erases itself.** The global costmap was
+a 120 m rolling window that discarded everything more than 60 m behind the
+aircraft — on a 400 m mission the map dissolved as it flew. It is now fixed:
+900 × 900 m at 0.5 m, centred on the pad. Clearing range was also cut from 35 m
+to 12 m, which is enough to clear a stale mark the aircraft is sitting on
+without wiping the wider map.
+
+**A delivery point inside a building now fails honestly.** The point chosen for
+the last route was inside the Morgan J. Burke Aquatic Center. Nav2 cannot plan
+to a lethal cell, so it returned nothing, the safety check refused it, the
+aircraft backed off, replanned, approached, and repeated — oscillating between
+8 and 58 m from the goal for the whole leg. It now says so plainly and gives up
+after 20 s, because that is not fixable in the air.
+
+**A no-progress watchdog** ends a leg where the best distance achieved has not
+improved for 90 s, rather than circling until the deadline.
+
+**The transit deadline margin went from 3.5× to 5×**, because a run that had to
+climb from 15 m to 39 m and back finished 31 m short.
+
+**New route**, chosen with the destination checked this time: 402 m out, 25 m
+clear of every building, with two 20 m buildings across the straight line. A
+route around them was confirmed to exist before flying — 426 m against 402 m
+straight, a 24 m detour.
+
+### Hardware impact
+
+- **This is the mount you are building.** The `under_drone` position triples
+  the return count and blinds the aircraft directly above itself. If the Mid-360
+  ends up anywhere else, say so — the simulated sensor should match, or the
+  simulation stops being evidence.
+- **The occlusion cone matters for the winch.** A sensor under the airframe is
+  looking at the same space the payload descends through. Worth checking, on the
+  bench, what the lidar returns while the winch is paying out.
+- No parameter changes on the flight controller.
+
+### How it was verified
+
+**Partly.** Each fix was verified against the failure it addressed:
+
+- Transposition: measured with a known model displacement, then the regenerated
+  world was confirmed to put three named buildings across the straight line.
+- Sensor-frame fix: the aircraft went from flying into the Turf Recreation
+  Center to **detecting it and refusing** — `HOLDING — planned route is blocked
+  at NED (-75.1, 291.6)`.
+- Marking/clearing split: the aircraft climbed to 39 m, the map cleared, and it
+  **flew over** the building it had been stuck against.
+- Destination check and goal choice: the unreachable goal was confirmed inside
+  the Aquatic Center; the replacement was confirmed clear, with a route.
+
+**The final configuration has NOT been flown end to end.** All sixteen items on
+the pre-run checklist pass, but the run itself was stopped before it started.
+Nothing here should be read as a completed mission.
+
+### Risks still open
+
+- The full mission has not flown since the lidar moved. Everything above is a
+  fix for an observed failure, not a demonstration of a working delivery.
+- Climb-to-escape has now fired in anger and worked once. The reactive case — a
+  route going stale because something new appears — still has not.
+- The mid-air disarm risk in the touchdown logic is **unchanged and remains the
+  top item** blocking a first flight.
+- The persistent 900 × 900 m costmap at 0.5 m is 3.24 M cells published at 1 Hz.
+  It has not been run long enough to know whether that is a problem on the
+  Jetson.
+
+---
+
 ## 2026-09-02 (late) — Real Purdue buildings, and Nav2 on every leg
 
 **In one sentence:** the simulated world is now the actual Purdue campus —

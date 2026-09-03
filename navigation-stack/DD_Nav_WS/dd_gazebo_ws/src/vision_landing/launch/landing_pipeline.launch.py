@@ -119,7 +119,7 @@ def generate_launch_description():
             description='FLOOR for the per-leg deadline. The actual deadline '
                         'scales with the distance being flown — see '
                         'transit_timeout_margin.'),
-        DeclareLaunchArgument('transit_timeout_margin', default_value='3.5'),
+        DeclareLaunchArgument('transit_timeout_margin', default_value='5.0'),
 
         # PX4 topic names.
         #

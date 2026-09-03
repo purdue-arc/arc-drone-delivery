@@ -197,17 +197,28 @@ local_costmap:
         # even though the real filtering is now upstream in
         # flight_level_filter. Wide open for the same reason as below.
         max_obstacle_height: 100.0
-        observation_sources: livox
-        livox:
-          # The FLIGHT-LEVEL filtered cloud, not the raw lidar. A 2D costmap
-          # cannot say "that is below me and I will clear it", so the filtering
-          # happens before the map: only returns near the aircraft's own
-          # altitude arrive here. See vision_landing/src/flight_level_filter.cpp
-          # for what that fixes and what it cost to learn.
+        # TWO sources, because marking and clearing must not use the same data.
+        #
+        # MARKING uses the flight-level cloud: only returns near the aircraft's
+        # own altitude may create an obstacle, so a low roof it will fly over
+        # never becomes one.
+        #
+        # CLEARING uses the RAW cloud: anything the lidar can see, at any
+        # height, may erase a cell it raytraces through.
+        #
+        # Using the filtered cloud for both deadlocks the aircraft. Measured:
+        # it correctly refused to fly into a 20 m building, climbed to 39 m to
+        # get above it — and stayed blocked, because at 39 m the building is
+        # outside the flight-level band, so there were no returns left to
+        # raytrace through the cells that were already marked. It sat there
+        # until the leg timed out. Climbing removed the marks' evidence and the
+        # means of erasing them at the same time.
+        observation_sources: livox_mark livox_clear
+        livox_mark:
           topic: /livox/points_flight_level
-          data_type: "PointCloud2"
           marking: true
-          clearing: true
+          clearing: false
+          data_type: "PointCloud2"
           obstacle_max_range: 30.0
           obstacle_min_range: 0.5
           raytrace_max_range: 35.0
@@ -225,6 +236,29 @@ local_costmap:
           # 0.0 disables the staleness check. The bridge runs ~10 Hz but the
           # cross-distro link measures ~6-7 Hz, and a tighter expectation
           # makes Nav2 spam "sensor data is stale" and refuse to plan.
+          expected_update_rate: 0.0
+        livox_clear:
+          # Raw lidar, clearing only. This is what lets the aircraft climb
+          # above an obstacle and have the map agree that it is now clear.
+          topic: /livox/points
+          data_type: "PointCloud2"
+          marking: false
+          clearing: true
+          obstacle_max_range: 30.0
+          obstacle_min_range: 0.5
+          # SHORT clearing range, deliberately. At 35 m every scan raytraced
+          # far past the aircraft and erased the map ahead of and behind it —
+          # the operator saw the occupancy grid dissolve as the aircraft flew,
+          # and obstacles seen on the way out were gone by the return.
+          #
+          # 12 m is enough to clear a stale mark the aircraft is sitting on or
+          # about to enter, which is the only thing clearing is needed for
+          # here, while leaving the wider map to accumulate.
+          raytrace_max_range: 12.0
+          raytrace_min_range: 0.5
+          min_obstacle_height: -100.0
+          max_obstacle_height: 100.0
+          inf_is_valid: true
           expected_update_rate: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
@@ -249,13 +283,27 @@ global_costmap:
       robot_base_frame: base_link
       use_sim_time: false
       robot_radius: 0.6
-      # Rolling window sized for a delivery transit. Without an explicit size
-      # nav2 defaults to 5x5 m and aborts any goal outside it. 0.2 m cells
-      # keep a 120 m map to 600x600 rather than 2400x2400 at 0.05.
-      rolling_window: true
-      width: 120
-      height: 120
-      resolution: 0.2
+      # PERSISTENT, not rolling. This is the map of the whole delivery area and
+      # it must not forget.
+      #
+      # As a 120 m rolling window it followed the aircraft and discarded every
+      # cell more than 60 m behind it, so on a 392 m mission the map was being
+      # thrown away continuously: obstacles seen on the way out had vanished by
+      # the time the aircraft came back past them, and the operator watching
+      # RViz saw the occupancy grid dissolve behind the aircraft.
+      #
+      # Fixed and centred on the pad instead, covering 900 x 900 m — enough for
+      # a delivery anywhere inside a 450 m radius, which is well beyond the
+      # companion-side range fence. At 0.5 m that is 1800 x 1800 cells; at the
+      # old 0.2 m it would have been 4500 x 4500 and 20 M cells per layer,
+      # which is not worth it when the airframe radius is 0.6 m.
+      rolling_window: false
+      width: 900
+      height: 900
+      resolution: 0.5
+      # Origin at the corner, so the map is centred on the pad at (0, 0).
+      origin_x: -450.0
+      origin_y: -450.0
       track_unknown_space: false
       # No static_layer: there is no pre-built map server for the delivery
       # area, and with track_unknown_space the planner treats unobserved cells
@@ -269,17 +317,28 @@ global_costmap:
         # even though the real filtering is now upstream in
         # flight_level_filter. Wide open for the same reason as below.
         max_obstacle_height: 100.0
-        observation_sources: livox
-        livox:
-          # The FLIGHT-LEVEL filtered cloud, not the raw lidar. A 2D costmap
-          # cannot say "that is below me and I will clear it", so the filtering
-          # happens before the map: only returns near the aircraft's own
-          # altitude arrive here. See vision_landing/src/flight_level_filter.cpp
-          # for what that fixes and what it cost to learn.
+        # TWO sources, because marking and clearing must not use the same data.
+        #
+        # MARKING uses the flight-level cloud: only returns near the aircraft's
+        # own altitude may create an obstacle, so a low roof it will fly over
+        # never becomes one.
+        #
+        # CLEARING uses the RAW cloud: anything the lidar can see, at any
+        # height, may erase a cell it raytraces through.
+        #
+        # Using the filtered cloud for both deadlocks the aircraft. Measured:
+        # it correctly refused to fly into a 20 m building, climbed to 39 m to
+        # get above it — and stayed blocked, because at 39 m the building is
+        # outside the flight-level band, so there were no returns left to
+        # raytrace through the cells that were already marked. It sat there
+        # until the leg timed out. Climbing removed the marks' evidence and the
+        # means of erasing them at the same time.
+        observation_sources: livox_mark livox_clear
+        livox_mark:
           topic: /livox/points_flight_level
-          data_type: "PointCloud2"
           marking: true
-          clearing: true
+          clearing: false
+          data_type: "PointCloud2"
           obstacle_max_range: 30.0
           obstacle_min_range: 0.5
           raytrace_max_range: 35.0
@@ -289,6 +348,29 @@ global_costmap:
           # AIRCRAFT rather than to the ground. Re-applying a fixed 2..40 m
           # window here would put the old altitude-blind behaviour straight
           # back on top of it.
+          min_obstacle_height: -100.0
+          max_obstacle_height: 100.0
+          inf_is_valid: true
+          expected_update_rate: 0.0
+        livox_clear:
+          # Raw lidar, clearing only. This is what lets the aircraft climb
+          # above an obstacle and have the map agree that it is now clear.
+          topic: /livox/points
+          data_type: "PointCloud2"
+          marking: false
+          clearing: true
+          obstacle_max_range: 30.0
+          obstacle_min_range: 0.5
+          # SHORT clearing range, deliberately. At 35 m every scan raytraced
+          # far past the aircraft and erased the map ahead of and behind it —
+          # the operator saw the occupancy grid dissolve as the aircraft flew,
+          # and obstacles seen on the way out were gone by the return.
+          #
+          # 12 m is enough to clear a stale mark the aircraft is sitting on or
+          # about to enter, which is the only thing clearing is needed for
+          # here, while leaving the wider map to accumulate.
+          raytrace_max_range: 12.0
+          raytrace_min_range: 0.5
           min_obstacle_height: -100.0
           max_obstacle_height: 100.0
           inf_is_valid: true

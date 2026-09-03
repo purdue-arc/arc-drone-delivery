@@ -2,7 +2,7 @@
 // actually hit, and drop the rest before they reach the costmap.
 //
 //   /livox/points               (PointCloud2, sensor frame)  in
-//   /livox/points_flight_level  (PointCloud2, map frame)     out
+//   /livox/points_flight_level  (PointCloud2, SENSOR frame)  out
 //
 // THE PROBLEM THIS SOLVES
 //
@@ -36,6 +36,24 @@
 // A hard floor above the launch elevation keeps the ground plane out of the
 // map when the aircraft is low. Without it, everything within the band during
 // takeoff and landing is ground, and the costmap fills with a wall of it.
+//
+// THE OUTPUT STAYS IN THE SENSOR FRAME. This matters more than it looks.
+//
+// The first version of this node published the kept points already
+// transformed into `map`, which seemed tidy. It is not: Nav2's obstacle layer
+// derives the SENSOR ORIGIN from the cloud's frame_id, and raytraces from
+// that origin out to every return to clear the cells in between. Labelled
+// `map`, the origin becomes the map origin — the landing pad — so every scan
+// raytraced from the pad to each return and erased everything along the way,
+// including the buildings the aircraft was about to fly into.
+//
+// That is exactly what happened: Nav2 kept planning, the costmap kept being
+// wiped, and the aircraft flew into the Turf Recreation Center at 15 m.
+//
+// So the height TEST is done in the map frame, because that is the only frame
+// in which "how high is this return" means anything — but the points that come
+// out are the original sensor-frame points with the original frame_id, so the
+// costmap knows where they were seen from.
 
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -102,9 +120,9 @@ private:
 
     const auto & q = tf.transform.rotation;
     const auto & t = tf.transform.translation;
-    // Rotation matrix from the quaternion (only the z row is needed to test
-    // height, but the full transform is published so the costmap gets points
-    // already in the map frame).
+    // Rotation matrix from the quaternion. Only the z row is used — the
+    // points are emitted unchanged in the sensor frame, and the rotation is
+    // needed solely to work out how high each return is in the map frame.
     const double xx = q.x * q.x, yy = q.y * q.y, zz = q.z * q.z;
     const double xy = q.x * q.y, xz = q.x * q.z, yz = q.y * q.z;
     const double wx = q.w * q.x, wy = q.w * q.y, wz = q.w * q.z;
@@ -127,17 +145,21 @@ private:
     for (; ix != ix.end(); ++ix, ++iy, ++iz, ++total) {
       const double x = *ix, y = *iy, z = *iz;
       if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)) continue;
+      // Height test in the map frame — only the z row of the rotation is
+      // needed for that.
       const double mz = r[6] * x + r[7] * y + r[8] * z + t.z;
       if (mz < lo || mz > hi) continue;
-      kept.push_back({
-        static_cast<float>(r[0] * x + r[1] * y + r[2] * z + t.x),
-        static_cast<float>(r[3] * x + r[4] * y + r[5] * z + t.y),
-        static_cast<float>(mz)});
+      // ...but emit the ORIGINAL sensor-frame point. See the header.
+      kept.push_back({static_cast<float>(x), static_cast<float>(y),
+                      static_cast<float>(z)});
     }
 
     sensor_msgs::msg::PointCloud2 out;
     out.header.stamp = msg->header.stamp;
-    out.header.frame_id = map_frame_;
+    // Sensor frame, NOT map — the costmap needs this to know where the scan
+    // was taken from, so it raytraces from the aircraft rather than from the
+    // map origin. See the header.
+    out.header.frame_id = msg->header.frame_id;
     out.height = 1;
     out.width = static_cast<uint32_t>(kept.size());
     out.is_bigendian = false;
