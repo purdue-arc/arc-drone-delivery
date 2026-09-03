@@ -103,6 +103,10 @@ public:
       declare_parameter("descent_stall_vz", 0.05));
     descent_stall_height_m_ = static_cast<float>(
       declare_parameter("descent_stall_height_m", 0.30));
+    // Backstop: hand the landing to PX4 if nothing else has concluded it.
+    // Was 90 s, which made every landing take a minute and a half; the stalled
+    // -descent handoff normally fires long before this.
+    land_handoff_sec_ = declare_parameter("land_handoff_sec", 25.0);
 
     // ── delivery ────────────────────────────────────────────────────────────
     // Destination as GPS. NaN (the default) means "no delivery" — the mission
@@ -395,6 +399,14 @@ private:
     current_ned_z_   = msg->z;
     current_heading_ = msg->heading;
     current_vz_      = msg->vz;
+    // Measured clearance to the ground, when a range sensor is actually
+    // providing it. This is the only height figure in the system that does not
+    // drift: height_above_home() is an EKF estimate referenced to wherever the
+    // aircraft took off, and barometric drift over a long mission moves it.
+    dist_bottom_       = msg->dist_bottom;
+    dist_bottom_valid_ = msg->dist_bottom_valid &&
+      (msg->dist_bottom_sensor_bitfield &
+       px4_msgs::msg::VehicleLocalPosition::DIST_BOTTOM_SENSOR_RANGE) != 0;
     pos_valid_       = msg->xy_valid && msg->z_valid;
     pos_received_    = true;
     last_pos_time_   = now();
@@ -1103,6 +1115,20 @@ private:
     transition(State::FAILSAFE_LAND);
     RCLCPP_WARN(get_logger(), "FAILSAFE_LAND (%s) — handing vehicle to PX4 AUTO.LAND",
                 reason.c_str());
+  }
+
+  // Finish the landing under PX4's own AUTO.LAND rather than under mission
+  // control. This is a NORMAL completion path, not a failsafe: PX4's land
+  // detector works perfectly well once we stop streaming setpoints at it, and
+  // handing the last metre to it is strictly safer than guessing.
+  void finish_under_auto_land(const char * why)
+  {
+    send_command(px4_msgs::msg::VehicleCommand::VEHICLE_CMD_NAV_LAND);
+    nav_land_sent_ = 1;
+    transition(State::FAILSAFE_LAND);
+    RCLCPP_INFO(get_logger(),
+      "Handing the last metre to PX4 AUTO.LAND (%s). This is the normal "
+      "finish when no range sensor is fitted.", why);
   }
 
   // ── safety checks run every tick while the mission is active ────────────────
@@ -1848,29 +1874,55 @@ private:
           descent_stalled_since_.nanoseconds() != 0 &&
           (now() - descent_stalled_since_).seconds() > descent_stall_sec_;
 
+        // WHY A STALLED DESCENT NO LONGER DISARMS
+        //
+        // The height in "we are close to the ground" is height_above_home() —
+        // an EKF estimate referenced to the takeoff point, which drifts with
+        // barometric pressure over a long mission. An earlier version of this
+        // code cut the motors on that estimate alone. If it drifted ~2 m low
+        // and the aircraft held steady for 3 s during a descent, the motors
+        // would stop while it was still 2 m up.
+        //
+        // The two outcomes are not symmetric:
+        //
+        //   disarm too early  -> the aircraft falls. Damage, possibly worse.
+        //   hand off too early -> PX4 AUTO.LAND flies it down from wherever it
+        //                         actually is. A controlled descent.
+        //
+        // So a stalled descent hands off; it never disarms. Disarming directly
+        // is reserved for signals that cannot be wrong about being on the
+        // ground: PX4's own land detector, or a real range sensor.
+        const bool measured = dist_bottom_valid_;
+        const float clearance = measured ? dist_bottom_ : height_above_home();
+
         if (landed_detected_) {
+          // PX4 says it is down. Authoritative.
           disarm();
           transition(State::LANDED);
-          RCLCPP_INFO(get_logger(), "Touchdown confirmed — disarmed. Mission complete.");
-        } else if (contact_held && height_above_home() < land_commit_height_m_) {
+          RCLCPP_INFO(get_logger(), "Touchdown confirmed by PX4 — disarmed. Mission complete.");
+        } else if (contact_held && clearance < land_commit_height_m_) {
+          // PX4's earlier land-detection stages, held. Also PX4's own judgement.
           disarm();
           transition(State::LANDED);
           RCLCPP_INFO(get_logger(),
-            "Touchdown on ground contact (%.2f m, contact held %.1f s) — disarmed. "
-            "Mission complete.", height_above_home(),
+            "Touchdown on ground contact (%.2f m%s, held %.1f s) — disarmed. "
+            "Mission complete.", clearance, measured ? ", measured" : "",
             (now() - contact_since_).seconds());
-        } else if (descent_stalled) {
+        } else if (descent_stalled && measured &&
+                   dist_bottom_ < descent_stall_height_m_) {
+          // Stalled descent AND a range sensor agreeing we are centimetres off
+          // the ground. A measurement, not an estimate, so disarming is sound.
           disarm();
           transition(State::LANDED);
           RCLCPP_INFO(get_logger(),
-            "Touchdown: commanding descent at %.2f m/s but stopped descending "
-            "at %.2f m for %.1f s — disarmed. Mission complete.",
-            descent_rate_mps_, height_above_home(),
-            (now() - descent_stalled_since_).seconds());
-        } else if (time_in_state() > 90.0) {
-          // Still airborne long after the descent should have finished.
-          RCLCPP_WARN(get_logger(), "No touchdown detection — handing off to PX4 AUTO.LAND");
-          enter_failsafe_land("no_touchdown_detected");
+            "Touchdown: descent stalled with the range sensor reading %.2f m — "
+            "disarmed. Mission complete.", dist_bottom_);
+        } else if (descent_stalled) {
+          // Stalled, but the only height we have is an estimate that can drift.
+          // Hand the last metre to PX4 rather than bet the airframe on it.
+          finish_under_auto_land("descent stalled, no range sensor to confirm height");
+        } else if (time_in_state() > land_handoff_sec_) {
+          finish_under_auto_land("no touchdown detected in time");
         }
         break;
       }
@@ -1970,6 +2022,9 @@ private:
   rclcpp::Time contact_since_{0, 0, RCL_ROS_TIME};
   double contact_confirm_sec_, descent_stall_sec_;
   float  descent_stall_vz_, descent_stall_height_m_;
+  double land_handoff_sec_;
+  float  dist_bottom_ = 0.0f;
+  bool   dist_bottom_valid_ = false;
   bool   battery_received_ = false;
   uint8_t battery_warning_ = 0;
   float  battery_remaining_ = -1.0f;

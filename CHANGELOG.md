@@ -105,6 +105,74 @@ complete mission in simulation. Nothing in it has ever run on real hardware.
 
 # Entries
 
+## 2026-09-02 (late night) — The mid-air disarm risk is gone
+
+**In one sentence:** the landing logic can no longer cut the motors while the
+aircraft is still in the air.
+
+### What changed
+
+The previous touchdown logic disarmed when the aircraft was below 0.30 m and
+had stopped descending for 3 s. That height came from the flight controller's
+estimate relative to the takeoff point, which drifts with barometric pressure
+over a long mission. Drift it 2 m low, hold steady for 3 s during a descent,
+and the motors stopped 2 m up.
+
+**A stalled descent now hands the last metre to PX4's own AUTO.LAND instead of
+disarming.** The two failure modes are not symmetric, and that asymmetry is the
+whole argument:
+
+| | |
+|---|---|
+| disarm too early | the aircraft falls — damage, possibly worse |
+| hand off too early | PX4 flies it down from wherever it actually is — a controlled descent |
+
+**Direct disarming is now reserved for signals that cannot be wrong about being
+on the ground:** PX4's own land detector, PX4's ground-contact stages, or a real
+range sensor. `VehicleLocalPosition` already carries `dist_bottom` and
+`dist_bottom_valid`, so when a rangefinder is fitted the mission uses a
+*measurement* rather than an estimate, and disarming directly is sound.
+
+The 90 s backstop became `land_handoff_sec` at 25 s, which is roughly the time
+a descent from the lowest search level takes. Landings no longer sit on the pad
+for a minute and a half waiting for a flag PX4 will not raise while we are
+still commanding it.
+
+### Hardware impact
+
+**A downward rangefinder is now worth fitting, and the software will use it the
+moment it appears.** Without one the aircraft finishes every landing under PX4
+AUTO.LAND — safe, and slightly less precise over the pad. With one, the mission
+keeps control all the way to touchdown. No configuration needed beyond PX4
+seeing the sensor: the code checks `dist_bottom_valid` and the sensor bitfield
+and switches automatically.
+
+### How it was verified
+
+Flown in simulation, search-and-land, on the campus world. SITL has no
+rangefinder (`dist_bottom_valid: False`), so this run exercised exactly the
+branch that used to disarm:
+
+```
+TAKEOFF -> SEARCH -> GOTO_TAG -> LAND -> FAILSAFE_LAND -> LANDED
+Handing the last metre to PX4 AUTO.LAND (no touchdown detected in time).
+This is the normal finish when no range sensor is fitted.
+```
+
+**Zero self-disarms.** The aircraft finished upright on the pad at
+(0.0, 0.0, 0.22 m), roll 0.001, pitch −0.002.
+
+### Risks still open
+
+- The rangefinder branch has never run, because no simulated rangefinder
+  exists. When one is fitted, test that path before trusting it.
+- Everything else on the blocking list is unchanged: the Livox driver, the
+  winch bench test, the gimbal sweep, the ZED calibration, and the PX4
+  parameter set. All need hardware.
+- `SECURE_PAYLOAD` still has never run.
+
+---
+
 ## 2026-09-02 (night) — Lidar moved under the aircraft, and four bugs that hid behind each other
 
 **In one sentence:** the simulated lidar now sits where it really sits — under
