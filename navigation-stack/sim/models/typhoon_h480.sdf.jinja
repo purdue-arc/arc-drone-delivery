@@ -169,14 +169,21 @@
         the occlusion is real and is the point of checking this in simulation.
       -->
       <sensor name="lidar" type="ray">
-        <!-- UNDER_DRONE mount, INVERTED. Position is unchanged — 0.15 m
-             below base_link, as on the aircraft. The roll of pi is what the
-             sensor LOOKS at.
+        <!-- THIS TEMPLATE IS THE SOURCE. typhoon_h480.sdf is generated from
+             it, so edit here — an edit made only in the .sdf either reverts on
+             the next regeneration or, because PX4 has overwrite protection,
+             fails the build with a message about extracting your changes.
+             This line read 0 0 0.12 0 0 0 (sensor ABOVE the airframe) for a
+             while after the .sdf had been moved below it, so a regeneration
+             would have put the lidar back on the roof without a word.
 
-             The Mid-360's field of view is -7 to +52 degrees about its own
-             plane, i.e. mostly UPWARD, so hanging it under the airframe the
-             right way up points that cone at the sky. Measured consequences
-             of doing exactly that, on 2026-09-04:
+             UNDER_DRONE mount: 0.15 m below base_link, as on the aircraft.
+
+             INVERTED — roll pi. Position unchanged; only the direction it
+             looks has flipped. The Mid-360's field of view is -7 to +52
+             degrees about its own x-y plane, i.e. mostly UPWARD, so hanging it
+             under the airframe the right way up points that cone at the sky.
+             Measured consequences of doing exactly that, on 2026-09-03:
 
                on the pad   only 4 of the 32 vertical rings point downward at
                             all, so the whole scene is a ring of ground at
@@ -188,16 +195,17 @@
 
              That is survivable for "do not hit a building taller than me",
              which is all the costmap was ever asked for, and it leaves a
-             lidar-inertial estimator with no geometry at all.
+             lidar-inertial estimator with no geometry at all: FAST-LIO2
+             drifted 118 m in 40 s with the aircraft parked on the pad.
 
-             Inverted, the cone points down (-52 to +7 degrees) and the ground
-             is 11.7 m away at transit height. Obstacle detection improved
-             sharply as a side effect: flight_level_filter went from keeping 0
-             returns to ~3900, and the costmap from 0 obstacle points to ~3700.
+             Inverted, the cone points down, -52 to +7 degrees, and the ground
+             is 11.7 m away at transit height.
 
              mount_z and mount_roll in
              vision_landing/launch/livox_mid360.launch.py MUST match this, and
-             so must the real aircraft. -->
+             so must the real aircraft. Together they are the claim "the
+             simulation and the airframe carry the sensor the same way up",
+             and nothing checks it automatically. -->
         <pose>0 0 -0.15 3.14159265 0 0</pose>
         <always_on>1</always_on>
         <update_rate>10</update_rate>
