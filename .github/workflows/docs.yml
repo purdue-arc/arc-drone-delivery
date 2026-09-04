@@ -2,8 +2,9 @@ name: Build & deploy flight docs
 
 # Rebuilds the three flight-docs pages (Software Stack Reference, Flight
 # Readiness Review, Flight Software Logbook) plus their index, and deploys
-# them to GitHub Pages, whenever CHANGELOG.md or anything under docs-site/
-# changes on the default branch. Also runnable by hand from the Actions tab.
+# them, along with a copy of drone_delivery_hub.html, to GitHub Pages,
+# whenever CHANGELOG.md, docs-site/ or the hub page changes on the default
+# branch. Also runnable by hand from the Actions tab.
 #
 # One-time setup this workflow can't do for you: in the repo's Settings →
 # Pages, set "Source" to "GitHub Actions". After that, this workflow owns
@@ -19,6 +20,7 @@ on:
     paths:
       - "CHANGELOG.md"
       - "docs-site/**"
+      - "drone_delivery_hub.html"
       - ".github/workflows/docs.yml"
   workflow_dispatch: {}
 
