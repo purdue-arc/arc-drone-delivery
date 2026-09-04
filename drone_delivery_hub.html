@@ -588,7 +588,7 @@
       <div>
         <h2>Straight to the repo</h2>
         <div class="trace"><div class="node"></div><div class="ln"></div></div>
-        <div class="config-note">These links are relative, so they work once this file is sitting inside the monorepo. They assume the file lives at the <b>repo root</b>. If you place it somewhere else (e.g. <code>docs/</code>), edit the single <code>REPO_BASE</code> constant near the top of the <code>&lt;script&gt;</code> block at the bottom of this file &mdash; and set <code>DOCS_BASE</code> next to it to the GitHub Pages URL once <code>docs-site/</code>'s workflow has deployed, so the three cards above link somewhere real.</div>
+        <div class="config-note">These links point at GitHub's blob viewer for each file, set by the <code>REPO_BASE</code> constant near the top of the <code>&lt;script&gt;</code> block at the bottom of this file. This page is published as part of <code>docs-site/dist/</code>, which doesn't contain the repo's actual files &mdash; only relative links to files that exist right there in <code>dist/</code> would work, so these go straight to GitHub instead. <code>DOCS_BASE</code>, next to it, points at the GitHub Pages URL once <code>docs-site/</code>'s workflow has deployed, so the three cards above link somewhere real.</div>
         <ul class="repolinks" id="repo-links"></ul>
       </div>
 
@@ -633,7 +633,7 @@ tabs.forEach(function(btn){
 });
 
 // ---------- repo base (edit this if the file isn't at the repo root) ----------
-var REPO_BASE = ''; // e.g. '../' if this file lives one folder below the repo root
+var REPO_BASE = 'https://github.com/raghavkannan03/arc-drone-delivery/blob/main/'; // set 2026-09-04: this page is published inside docs-site/dist/, which doesn't contain the actual repo files, so links point at GitHub's blob viewer instead of a relative path
 
 // ---------- docs site base (the GitHub Pages URL docs-site/ deploys to) ----------
 // Fill this in once the docs.yml workflow has deployed successfully — the

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,6 +54,8 @@ except ImportError:
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 DEFAULT_CHANGELOG = REPO_ROOT / "CHANGELOG.md"
+HUB_FILENAME = "drone_delivery_hub.html"
+DEFAULT_HUB = REPO_ROOT / HUB_FILENAME
 DATA_DIR = SCRIPT_DIR / "data"
 TEMPLATES_DIR = SCRIPT_DIR / "templates"
 DEFAULT_OUT = SCRIPT_DIR / "dist"
@@ -303,7 +306,7 @@ def load_yaml(name: str) -> dict:
         return yaml.safe_load(f) or {}
 
 
-def build(changelog_path: Path, out_dir: Path) -> None:
+def build(changelog_path: Path, out_dir: Path, hub_path: Path | None = None) -> None:
     if not changelog_path.exists():
         sys.exit(f"CHANGELOG.md not found at {changelog_path}")
     changelog_text = changelog_path.read_text(encoding="utf-8")
@@ -355,6 +358,17 @@ def build(changelog_path: Path, out_dir: Path) -> None:
         (out_dir / filename).write_text(template.render(**ctx), encoding="utf-8")
         print(f"wrote {out_dir / filename}")
 
+    # The standalone hub page is copied in verbatim rather than generated, so
+    # that the deployed site is the whole documentation surface instead of just
+    # the four generated pages. Doing it here (not in the workflow) keeps a
+    # local build byte-identical to what CI publishes.
+    if hub_path is not None:
+        if hub_path.exists():
+            shutil.copy2(hub_path, out_dir / HUB_FILENAME)
+            print(f"copied {out_dir / HUB_FILENAME}")
+        else:
+            print(f"note: no hub page at {hub_path} - skipping it", file=sys.stderr)
+
     # .nojekyll so GitHub Pages serves files/folders starting with an
     # underscore (Jinja/static assets, if any get added later) as-is
     (out_dir / ".nojekyll").write_text("", encoding="utf-8")
@@ -364,8 +378,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--changelog", type=Path, default=DEFAULT_CHANGELOG)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    parser.add_argument(
+        "--hub",
+        type=Path,
+        default=DEFAULT_HUB,
+        help="standalone hub page copied into the output as-is",
+    )
     args = parser.parse_args()
-    build(args.changelog, args.out)
+    build(args.changelog, args.out, args.hub)
 
 
 if __name__ == "__main__":
