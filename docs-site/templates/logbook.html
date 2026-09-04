@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flight Software Logbook — ARC Drone Delivery</title>
+{% include "_style.html" %}
+</head>
+<body>
+{% include "_header.html" %}
+
+  <div class="eyebrow">ARC Drone Delivery &middot; Flight Software</div>
+  <h1>Flight Software Logbook</h1>
+  <p class="standfirst">Every significant change to the software that flies the aircraft &mdash; what changed, why, what it means for hardware, and what was actually tested rather than assumed. Parsed straight out of <code>CHANGELOG.md</code>: {{ entry_count }} entries, most recent first.</p>
+
+  <section class="block">
+    <h2>Current status</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    <div class="cardgrid">
+      {% for s in status.subsystems %}
+      <div class="cell">
+        <span class="sys">{{ s.name }}</span>
+        <span class="note">{{ s.state | safe_html }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>Entries</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    {% for e in entries %}
+    <details class="entry"{{ ' open' if loop.first }}>
+      <summary>
+        <span class="date">{{ e.date }}{% if e.subtitle %} &middot; {{ e.subtitle }}{% endif %}</span>
+        <span class="title">{{ e.title }}</span>
+      </summary>
+      <div class="body">
+        {% if e.lede %}<p class="lede"><b>In one sentence:</b> {{ e.lede | safe_html }}</p>{% endif %}
+        {% for s in e.sections %}
+          {% if s.heading %}<div class="subhead">{{ s.heading }}</div>{% endif %}
+          {{ s.html | safe_html }}
+        {% endfor %}
+      </div>
+    </details>
+    {% else %}
+    <p>No entries parsed from CHANGELOG.md yet.</p>
+    {% endfor %}
+  </section>
+
+  {% if glossary %}
+  <section class="block">
+    <h2>Glossary</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    <div class="gloss">
+      {% for g in glossary %}
+      <div><dt>{{ g.term }}</dt><dd>{{ g.definition | safe_html }}</dd></div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+{% include "_footer.html" %}
+</body>
+</html>

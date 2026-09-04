@@ -1,0 +1,383 @@
+# Flight Readiness Review — structured source data
+#
+# Unlike the Logbook (generated straight from CHANGELOG.md's Entries
+# section), this page is an audit — a point-in-time judgment call about
+# "could this fly tomorrow?". That judgment needs a person or Claude to
+# make it; it can't be regexed out of commit messages. So this file is
+# where a new audit pass gets written up. What updates automatically on
+# every commit regardless: the subsystem board and blocking list below are
+# re-synced from CHANGELOG.md's "Current status" section by generate.py —
+# edit CHANGELOG.md's tables, not the subsystem_board/blocking keys below
+# (they're overwritten at build time; left here only as a fallback if that
+# section is ever missing from CHANGELOG.md).
+
+audit:
+  date: "2026-09-01"
+  branch: "main @ 3b70366b"
+  scope: "vision_landing, zed_apriltag_streaming, drone_nav, docker/"
+  method: "source audit + container build + launch test"
+  standfirst: >
+    A component-by-component audit of the delivery stack against one
+    question: can the full mission — arm, transit, winch drop, return,
+    precision land — run end to end on the aircraft?
+  banner: >
+    All software and configuration findings from the 2026-09-01 audit have
+    been fixed and verified on branch `flight-readiness-fixes`. Four items
+    remain open because they need hardware, not code. A follow-up
+    line-by-line review of that branch found twelve further defects (all
+    fixed) — see the Logbook entry **"Twelve review findings fixed, five
+    in the delivery brain"** for the full account, since it's the same
+    material the Logbook already covers day by day.
+
+verdict:
+  headline: >
+    The software flies the whole mission again, on the hardest route we
+    have. The hardware work is now the only thing left.
+  body: >
+    All six blockers from the original audit are closed, and so is the
+    mid-air disarm risk introduced while fixing them. The full mission has
+    flown end to end in simulation against the real Purdue campus — 596 m
+    out and back, takeoff, transit routed around buildings, winch drop,
+    return, tag search, precision landing, disarm, no failsafe.
+
+
+    Then the branch was read line by line, and it was not clean — twelve
+    more defects, twelve more fixes, two of which would have ruined a
+    flight outright. See the Logbook for that story.
+
+# subsystem_board and blocking are overwritten at build time from
+# CHANGELOG.md's "Current status" and "Blocking a first flight" tables.
+# Kept here only as a fallback.
+subsystem_board: []
+blocking: []
+
+blockers:
+  - id: B1
+    title: "The mission container cannot find the mission"
+    body: >
+      `entrypoint.sh` triggered its first-run build only when a `src/`
+      directory existed at a fixed path — but this repo is a monorepo with
+      no top-level `src/`; the ROS packages live several directories
+      down. So the build never ran, and the entrypoint instead sourced a
+      months-old host-built `install/` tree left over from a different ROS
+      distro.
+    fix: >
+      Point the entrypoint at the real package roots and build into a
+      workspace the container owns rather than the host's stale tree.
+      `COLCON_IGNORE` the old build so nothing can silently resolve
+      against it again.
+    resolution: done
+    resolution_text: >
+      `entrypoint.sh` builds with explicit `--base-paths` into a
+      container-owned workspace, skips the one package that can't build in
+      this image, and exits with one clear message if a required package
+      is missing. The stale host trees carry `COLCON_IGNORE`. Verified:
+      clean build from scratch, all packages resolving.
+
+  - id: B2
+    title: "The controller subscribes to topics this PX4 does not publish"
+    body: >
+      `mission_controller` defaulted to versioned PX4 topic names for
+      status, position and battery. The consequence was quiet: no
+      telemetry ever reached the FSM, so preflight failed forever on "no
+      PX4 telemetry yet" and the aircraft simply never started — safe, but
+      indistinguishable from a dead DDS link in the field.
+    fix: >
+      Confirm what the flight controller actually runs, then pin the
+      topic names explicitly instead of relying on defaults, with a
+      preflight log line naming each one.
+    resolution: done
+    resolution_text: >
+      Fixed — and the finding was half wrong. PX4 genuinely does append a
+      version suffix to some topics and not others; the original mixed
+      defaults were correct for the firmware in the tree. All topic names
+      are now launch arguments and environment variables, preflight names
+      what it's waiting on, and `make check-px4-topics` compares the
+      configured set against what the aircraft actually publishes.
+
+  - id: B3
+    title: "Nothing that deploys the aircraft is in git"
+    body: >
+      The entire deployment tree — both compose overlays, the Dockerfile,
+      the entrypoint, the Makefile, all the flight bridges, the RViz
+      configs — existed only in one working tree, alongside tens of
+      thousands of unstaged deletions. There was also no PX4 parameter set
+      anywhere in the repo; every airframe-side setting the mission
+      depends on lived only in the flash of whichever flight controller
+      was last touched.
+    fix: >
+      Commit the deployment tree and resolve the pending deletions before
+      any flight work. Export the flight controller's full parameter list
+      into the repo too.
+    resolution: done
+    resolution_text: >
+      Fixed. The deployment tree is committed, the pending deletions are
+      resolved, and `config/px4/` now carries the parameters the stack
+      requires. The PX4 firmware source itself is gitignored with a doc
+      recording how to obtain it and which version the software targets.
+
+  - id: B4
+    title: "Obstacle avoidance has no sensor on the aircraft"
+    body: >
+      Both Nav2 costmaps take their only observation source from the
+      lidar topic. In simulation that's produced by a bridge; there was no
+      real Livox ROS 2 driver package in the repo and no way to start one
+      on the Jetson. The mission is explicitly built to keep flying
+      without a fresh obstacle plan — right for a transient hiccup, unsafe
+      as a permanent state, since every hardware transit would then be an
+      unguarded straight line with only a throttled log warning as the
+      sign.
+    fix: >
+      Add the Livox driver as a real service in the hardware overlay, and
+      make the straight-line fallback conditional: refuse to transit
+      rather than degrade to blind if no plan has ever arrived.
+    resolution: open
+    resolution_text: >
+      Fixed in software, hardware task open. The dangerous half closed
+      first — the mission now holds and aborts rather than flying an
+      unguarded transit. The driver is now vendored too, launched by our
+      own launch file rather than the driver's own (which either publishes
+      an unreadable message format or opens a display window an aircraft
+      doesn't have). Still open: put the sensor on the network, measure
+      the mount, confirm the obstacle map actually fills from it.
+
+  - id: B5
+    title: "The delivery mission is not in the deployed configuration"
+    body: >
+      The compose service that launches on real hardware ran a
+      search-and-land pipeline only — it never started the winch bridge
+      and passed no delivery coordinates. Everything that makes this a
+      delivery aircraft was wired only in a separate launch file that
+      neither compose nor the Makefile referenced.
+    fix: >
+      Make the hardware overlay launch the actual delivery pipeline, with
+      the destination and heights as environment-driven arguments.
+    resolution: done
+    resolution_text: >
+      Fixed. The hardware overlay runs the delivery launch file with the
+      destination, heights, fence and recording as environment variables.
+      Verified: all delivery-path nodes come up, including the winch
+      bridge and the path bridge.
+
+  - id: B6
+    title: "Perception's video input is a hand-typed command, and its calibration never loads"
+    body: >
+      Nothing in the repo produced the camera's video stream on the
+      aircraft automatically — the only documented pipeline was a command
+      an operator had to type by hand over a serial console, aimed at a
+      laptop over WiFi rather than localhost. Separately, an environment
+      variable name mismatch meant the calibration file path always
+      resolved empty, so the perception node ran in a mode that could
+      never publish a tag detection — and the mission would search until
+      timeout and failsafe-land.
+    fix: >
+      Rename the variable so it matches, and have the node refuse to
+      start without usable intrinsics. Make the camera capture a
+      supervised service on the Jetson streaming to localhost.
+    resolution: open
+    resolution_text: >
+      Fixed in software, hardware task open. The camera capture is now a
+      supervised compose service streaming to localhost, the variable
+      names match, and the node refuses to start without usable intrinsics
+      (verified — it exits with a clear reason). Still open: generate the
+      real calibration from the camera and set the path.
+
+safety_gaps:
+  - id: S1
+    title: "A failsafe during the winch drop lands the aircraft on its own cable"
+    body: >
+      Any safety trip during the delivery hover — low battery, position
+      estimate lost, operator abort — handed the aircraft straight to
+      PX4's automatic landing without telling the winch anything. The
+      spool held exactly where it was, hook closed, so the aircraft
+      descended with the package part-way down and the cable slack.
+    fix: >
+      Give the failsafe a winch-aware path: retract to stowed if there is
+      time, otherwise release and drop the load before descending.
+    resolution: done
+    resolution_text: >
+      Fixed. A new state freezes position and retracts before landing when
+      there's time; an urgent failsafe (position estimate lost, battery
+      critical) releases the load immediately instead, since there may be
+      no position estimate left to hold station with.
+
+  - id: S2
+    title: "The winch is fully open-loop and has never been tested"
+    body: >
+      The whole lower/release/retract sequence runs on timers, with no
+      encoder, load cell or limit switch. Nothing could detect a jam, a
+      snag, a package that never released, or cable still paid out when
+      the bridge reported "stowed" — and the mission trusted that report
+      and departed for home.
+    fix: >
+      Bench-cycle it with a representative load and props removed before
+      anything else, and add at least one sensor that can contradict the
+      timer.
+    resolution: open
+    resolution_text: >
+      Partly fixed, bench test open. The winch now accepts an optional
+      stowed limit switch — a retract that finishes its timer with the
+      switch still open reports a failure rather than success, which the
+      failsafe path treats as "payload still deployed". Preflight also
+      refuses a delivery when no winch is publishing at all. Still open:
+      the actual bench cycle that sets the timings.
+
+  - id: S3
+    title: "No geofence, no altitude limit, no terrain awareness in flight"
+    body: >
+      The range limit was checked once at preflight and never again.
+      Transit altitude was measured from the launch point, so a delivery
+      over rising ground would close its clearance with nothing watching.
+      There was no in-flight boundary check and no committed flight
+      controller geofence to catch it at the firmware layer.
+    fix: "Set and commit a flight-controller geofence for the test site — the layer that keeps working when the companion computer stops."
+    resolution: done
+    resolution_text: >
+      Fixed. Range and altitude are now checked on every tick of every
+      active state, and preflight refuses a mission whose own altitude
+      exceeds the fence. The committed PX4 parameter set carries the
+      geofence, deliberately wider so the companion side trips first.
+
+  - id: S4
+    title: "The mission publishes no state"
+    body: >
+      There was no mission-state topic and no telemetry of the state
+      machine at all — the only view into what the aircraft was doing was
+      a console log. Nothing recorded a flight log. After a real flight
+      there would be nothing to analyse but the flight controller's own
+      log, which knows about setpoints but not about why they were sent.
+    fix: "Publish state, current target and active failsafe reason at 1 Hz, and record a bag of that alongside the flight controller's own telemetry for every flight."
+    resolution: done
+    resolution_text: >
+      Fixed. The mission now publishes state, time in state, altitude, tag
+      age, winch state, battery and failsafe reason — at 1 Hz and on every
+      transition. Recording is on by default on hardware.
+
+  - id: S5
+    title: "The gimbal angle is assumed, never measured"
+    body: >
+      The landing-target projection used the *commanded* gimbal tilt, not
+      a measured one — nothing subscribed to the flight controller's own
+      gimbal attitude feedback. A systematic offset in the actuator
+      calibration would turn directly into a landing-point error that
+      grows with range.
+    fix: "Do the props-off tilt sweep against a protractor, then close the loop: use the measured angle for the projection, or at minimum reject detections while the gimbal is still slewing."
+    resolution: open
+    resolution_text: >
+      Fixed in software, bench check open. The controller now subscribes
+      to the gimbal's own attitude feedback, projects detections through
+      the measured pitch when it's fresh, and discards detections taken
+      while the gimbal is still slewing — falling back to the commanded
+      angle only when there's no feedback. Still open: the actual
+      props-off protractor sweep.
+
+  - id: S6
+    title: "No automated tests on any flight code"
+    body: >
+      The perception, mission and navigation packages had no tests of any
+      kind. The two coordinate transforms that place the aircraft over the
+      pad and over the customer are exactly the things that are cheap to
+      test and expensive to get wrong in the air.
+    fix: "Unit-test the two coordinate transforms against hand-computed values first."
+    resolution: done
+    resolution_text: >
+      Fixed. 17 tests over both transforms, including a regression test
+      for a term whose accidental removal would put every landing about
+      0.9 m off. All passing.
+
+smaller_defects:
+  - id: D1
+    where: "odom_publisher_broadcaster.cpp"
+    issue: "Angular twist y and z were both assigned the same axis's value — a copy-paste error, currently invisible since nothing downstream reads them."
+    status: Fixed
+  - id: D2
+    where: "mission_controller.cpp"
+    issue: "A landing-retry counter was never reset after a successful retry, so it accumulated across stages and reached the failsafe threshold sooner than intended."
+    status: Fixed
+  - id: D3
+    where: "mission_controller.cpp"
+    issue: "An unused parameter was declared and never read — the code always took the same path regardless of its value."
+    status: "Fixed — parameter removed"
+  - id: D4
+    where: "nav2_path_bridge.cpp"
+    issue: "A planner request had no timeout. If a goal never returned a result, replanning stopped permanently and the mission silently reverted to straight-line for the rest of the transit."
+    status: "Fixed — timeout added"
+  - id: D5
+    where: "zed_apriltag_streaming/main.cpp"
+    issue: "A failed camera read hit a bare retry loop with no reconnect or backoff — a dropped stream busy-loops a processor core, and the node logged nothing while waiting for its first frame."
+    status: "Fixed — reconnect + logs"
+  - id: D6
+    where: "vision_landing/src/vio_node.cpp"
+    issue: "Hardcoded camera intrinsics, subscribes to topics nothing publishes, and publishes into the flight controller's estimator. Correctly off by default."
+    status: "Warns loudly at startup"
+  - id: D7
+    where: "zed_apriltag_streaming/CMakeLists.txt"
+    issue: "A fallback build path cloned a dependency from its default branch at build time — an unpinned network dependency that fails on a field laptop with no internet."
+    status: "Pinned to a fixed release"
+  - id: D8
+    where: "vision_landing/config/ekf.yaml"
+    issue: "Configured a localization node fed by a topic that doesn't exist and that nothing launches. Dead config that would mislead the next reader."
+    status: "Fixed — file removed"
+
+gates:
+  - tag: "Gate 1 ✓"
+    title: "Make the repo the source of truth"
+    body: >
+      Done. Entrypoint fixed, topic names pinned and made overridable,
+      deployment tree committed, pending deletions resolved, PX4
+      parameter set written down for the first time.
+    gate: >
+      A fresh clone on a second machine reaches a running simulation build
+      with no manual steps. Verified from a clean build directory; the one
+      manual step left is fetching the PX4 firmware source, which is
+      documented.
+
+  - tag: "Gate 2"
+    title: "Fly the whole mission in SITL, repeatedly"
+    body: >
+      The delivery mission is now what the hardware overlay launches, and
+      the full sequence has flown 596 m out and back with no failsafe.
+      But the delivery sequence has been rewritten since that flight, so
+      this gate reopened. Re-fly it, and include the failure cases the
+      rewrite introduced.
+    gate: >
+      Ten consecutive runs end in a landed state, and every deliberate
+      failure ends where you predicted before you ran it. The emergency
+      payload-securing path must be among them — it has never executed
+      once.
+
+  - tag: "Gate 3"
+    title: "Bench the hardware, props off"
+    body: >
+      This is where the remaining work is. The software side of the
+      hardware-blocked findings above is done; these need the hardware in
+      front of you: the gimbal tilt sweep against a protractor, a winch
+      cycle with a representative load to set the real timings and confirm
+      hook direction, the camera calibration generated, and the lidar on
+      its own network with the mount measured rather than assumed from the
+      simulated model.
+    gate: "Every actuator has been commanded from the software and physically observed to do the right thing."
+
+  - tag: "Gate 4"
+    title: "Fly search-and-land only"
+    body: >
+      No delivery waypoint, no winch, geofence set, pilot on the sticks
+      with a mode switch ready, flight recorded. This exercises the part
+      of the stack that is genuinely mature and nothing else. Transit and
+      the winch drop join only after this is boring.
+    gate: "Repeated autonomous landings on the pad with no pilot intervention."
+
+closing:
+  - >
+    The mission logic is in better shape than the question implies. The
+    failsafe structure is thorough, the pilot-override behaviour is right
+    — it goes permanently passive rather than fighting the RC pilot — and
+    the camera-to-world projection carries a term whose absence would put
+    every landing about 0.9 m off.
+  - >
+    What was missing was everything around it — wiring, configuration and
+    discipline rather than algorithms — and that part is now done. The
+    stack builds and launches from a clean checkout, the delivery mission
+    is what the hardware overlay actually runs, the flight-controller
+    interface is pinned and checkable, the failsafe no longer lands on its
+    own cable, and the mission leaves a record of what it did.

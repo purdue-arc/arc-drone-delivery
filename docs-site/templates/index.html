@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flight Docs — ARC Drone Delivery</title>
+{% include "_style.html" %}
+</head>
+<body>
+{% include "_header.html" %}
+
+  <div class="eyebrow">Documentation Hub</div>
+  <h1>Flight software documentation</h1>
+  <p class="standfirst">Three views onto the same repository, each rebuilt automatically whenever <code>CHANGELOG.md</code> or this site's data files change — no hand-republishing, no drift between what's written down and what's actually in the tree.</p>
+
+  <div class="linkgrid" style="margin-top:2rem">
+    <a class="linkcard" href="stack.html">
+      <span class="lc-name">Software Stack Reference</span>
+      <span class="badge-live">Live &middot; auto-built</span>
+      <span class="lc-desc">Every piece of software in the repository, top to bottom — what each part does, what it talks to, and whether it's actually used.</span>
+      <span class="go">Open &rarr;</span>
+    </a>
+    <a class="linkcard" href="readiness.html">
+      <span class="lc-name">Flight Readiness Review</span>
+      <span class="badge-live">Live &middot; auto-built</span>
+      <span class="lc-desc">The audit against "could this fly tomorrow?" — subsystem status, blockers, safety gaps, and the path to a first real flight test.</span>
+      <span class="go">Open &rarr;</span>
+    </a>
+    <a class="linkcard" href="logbook.html">
+      <span class="lc-name">Flight Software Logbook</span>
+      <span class="badge-live">Live &middot; auto-built</span>
+      <span class="lc-desc">Every CHANGELOG.md entry in full, rendered — {{ entry_count }} so far — plus the glossary.</span>
+      <span class="go">Open &rarr;</span>
+    </a>
+  </div>
+
+  <section class="block">
+    <h2>Current status</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    <div class="cardgrid">
+      {% for s in status.subsystems %}
+      <div class="cell">
+        <span class="sys">{{ s.name }}</span>
+        <span class="note">{{ s.state | safe_html }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <p style="font-size:.87rem;color:var(--ink-3)">Full detail, findings and the path to a first flight are on the <a href="readiness.html">Readiness Review</a>.</p>
+  </section>
+
+  <section class="block">
+    <h2>How this site stays honest</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    <p>The Logbook and the status grid above are parsed directly out of <code>CHANGELOG.md</code> — add an entry there and both update on the next build, automatically. The Stack Reference and the Readiness Review's findings live in <code>docs-site/data/*.yaml</code>, because "what does this component do" and "is this safe to fly" take a person's judgment, not a regex. Either way, a push to the repo is what rebuilds the site — see <code>docs-site/README.md</code> for the full mechanics.</p>
+  </section>
+
+{% include "_footer.html" %}
+</body>
+</html>
