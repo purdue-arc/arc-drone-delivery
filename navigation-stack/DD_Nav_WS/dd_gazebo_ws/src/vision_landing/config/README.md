@@ -5,6 +5,28 @@
 | `nav.rviz` | `delivery.launch.py rviz:=true` — costmap, planned transit route, flown track |
 | `perception.rviz` | `delivery.launch.py rviz:=true` — Livox cloud, TF, landing target |
 | `delivery.rviz` | Standalone combined view; not launched automatically |
+| `livox/` | The Mid-360 driver's JSON — sensor and host IP, UDP ports |
+| `fast_lio/` | FAST-LIO2 and `lio_odom_bridge`, one pair of files per world |
+
+## `fast_lio/`
+
+Four files, used in pairs, selected by a single launch argument:
+
+| Pair | `lio_config:=` | IMU |
+|---|---|---|
+| `mid360_sitl.yaml` + `lio_bridge_sitl.yaml` | `mid360_sitl.yaml` (default) | PX4's, via `px4_imu_bridge` |
+| `mid360_aircraft.yaml` + `lio_bridge_aircraft.yaml` | `mid360_aircraft.yaml` | the Mid-360's own, on `/livox/imu` |
+
+The bridge file is derived from the estimator file in `fast_lio.launch.py`
+rather than being a second argument. The two have to describe the same IMU —
+one says where the lidar is relative to it, the other where `base_link` is —
+and as independent knobs they are two chances to produce a stack that starts
+cleanly and is quietly wrong, since a mismatched offset biases every
+correction rather than failing.
+
+The `mid360_*.yaml` files are derived from upstream's `config/mid360.yaml`.
+Every value that differs from upstream is marked `ARC` with the reason. On a
+version bump, diff against upstream rather than replacing these.
 
 ## Removed: `ekf.yaml`
 

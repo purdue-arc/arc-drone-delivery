@@ -1,0 +1,20 @@
+# lio_odom_bridge, SITL.
+#
+# Paired with mid360_sitl.yaml — the two must describe the same IMU. There is
+# one launch argument (`lio_config`) and this file is selected from it, rather
+# than being a second knob that can silently disagree with the first.
+lio_odom_bridge:
+  ros__parameters:
+    # FAST-LIO's body frame is whichever IMU it was given. In SITL that is
+    # PX4's, which is at base_link, so there is no offset to correct.
+    lio_body_to_base_link: [0.0, 0.0, 0.0]
+
+    # See the node header for what each of these is protecting against.
+    max_slew_m_s: 0.25
+    max_slew_deg_s: 2.0
+    max_step_m: 1.0
+    max_step_deg: 5.0
+    max_correction_m: 20.0
+    lio_timeout_sec: 1.0
+    publish_rate_hz: 20.0
+    tf_timeout_sec: 0.05

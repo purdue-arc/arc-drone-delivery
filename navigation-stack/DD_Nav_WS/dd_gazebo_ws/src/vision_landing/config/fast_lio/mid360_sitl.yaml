@@ -1,0 +1,110 @@
+# FAST-LIO2 in SITL: the Gazebo ray sensor + PX4's IMU.
+#
+# Differs from mid360_aircraft.yaml only where the simulator forces it to.
+# Every difference is a place where SITL is NOT evidence about the aircraft, so
+# they are listed rather than buried:
+#
+#   IMU        PX4's, bridged by px4_imu_bridge and stamped at reception. The
+#              real aircraft uses the Mid-360's internal IMU, which shares a
+#              clock with the laser. SITL therefore has transport jitter
+#              between cloud and IMU that the aircraft will not, and cannot
+#              tell you what timing accuracy the real pipeline reaches.
+#   Extrinsic  Lidar relative to base_link, because that is where PX4's IMU
+#              effectively sits. On the aircraft the extrinsic is a datasheet
+#              constant between two parts of one sensor.
+#   De-skew    Untestable here. The Gazebo ray sensor samples a whole frame in
+#              one instant, so every point's offset_time is genuinely zero and
+#              there is no motion skew to remove. The real Mid-360 sweeps for
+#              100 ms — 0.4 m of travel at transit speed.
+#   Geometry   The world is OSM building footprints, so it is far cleaner and
+#              far more planar than real campus. Expect SITL to flatter the
+#              estimator.
+#
+# What SITL DOES establish: that the topics connect, the frames resolve, the
+# estimator converges and stays bounded over a full 596 m delivery, and that
+# lio_odom_bridge's correction behaves.
+
+/**:
+    ros__parameters:
+        feature_extract_enable: false
+        # ARC: 1, where the aircraft config uses 3. point_filter_num keeps one
+        # point in N, and it exists to stop a real Mid-360's ~20,000 points per
+        # frame from swamping the companion computer. The simulated lidar is a
+        # 360 x 32 ray sensor producing about 1,500 points per frame — already
+        # 13x sparser — and thinning that by another factor of three leaves
+        # ~500 points per scan to register against, which is thin enough that a
+        # failure to converge would say more about the sim than the algorithm.
+        point_filter_num: 1
+        max_iteration: 3
+        filter_size_surf: 0.5
+        filter_size_map: 0.5
+        cube_side_length: 1000.0
+        runtime_pos_log_enable: false
+        map_file_path: "./test.pcd"
+
+        common:
+            lid_topic:  "/livox/lidar_custom"
+            # PX4's IMU, FRD->FLU, via px4_imu_bridge.
+            imu_topic:  "/arc/imu"
+            time_sync_en: false
+            time_offset_lidar_to_imu: 0.0
+
+        preprocess:
+            lidar_type: 1
+            scan_line:  4
+            blind: 0.5
+            timestamp_unit: 3
+            scan_rate: 10
+
+        mapping:
+            # The simulated IMU is noisier and less well characterised than the
+            # Mid-360's. These are upstream's defaults and have not been tuned
+            # against the sim; if the solution is jittery here, that is the
+            # first place to look and NOT a finding about the aircraft.
+            acc_cov: 0.1
+            gyr_cov: 0.1
+            b_acc_cov: 0.0001
+            b_gyr_cov: 0.0001
+            fov_degree:    360.0
+            det_range:     100.0
+            extrinsic_est_en:  false
+            # Laser expressed in the IMU frame. PX4's IMU is at base_link and
+            # the lidar is 0.15 m below it, matching mount_z in
+            # livox_mid360.launch.py and the "under_drone" position in
+            # sim/models/typhoon_h480.sdf. Change one, change all three.
+            extrinsic_T: [ 0.0, 0.0, -0.15 ]
+            # Rx(pi). The sensor is mounted INVERTED under the airframe, so
+            # the lidar frame is rolled 180 degrees relative to PX4's IMU,
+            # which sits at base_link the right way up. Unlike the aircraft
+            # config — where FAST-LIO's IMU is inside the sensor and turns
+            # with it, leaving the extrinsic identity — here the two are
+            # different bodies and the roll is real.
+            extrinsic_R: [ 1.,  0.,  0.,
+                           0., -1.,  0.,
+                           0.,  0., -1.]
+
+        publish:
+            path_en: true
+            effect_map_en: false
+            # ARC: FALSE, upstream true. `map_en` does not do what the name
+            # suggests. publish_map() appends every frame into a global
+            # `pcl_wait_pub` that is NEVER cleared, then serialises and
+            # republishes the entire accumulation once a second. Over a ten
+            # minute delivery that is millions of points growing without bound
+            # in RAM and a republish that gets steadily more expensive — the
+            # same failure as pcd_save_en, wearing a different name.
+            #
+            # Nothing is lost by turning it off: /fast_lio/cloud_registered
+            # carries each registered scan, and RViz accumulates it with Decay
+            # Time, which is what config/lio.rviz does.
+            map_en: false
+            scan_publish_en:  true
+            dense_publish_en: false
+            scan_bodyframe_pub_en: true
+            tf_en: false
+            odom_frame_id: "lio_odom"
+            body_frame_id: "lio_body"
+
+        pcd_save:
+            pcd_save_en: false
+            interval: -1

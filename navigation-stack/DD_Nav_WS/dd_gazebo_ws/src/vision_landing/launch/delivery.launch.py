@@ -35,9 +35,10 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import (LaunchConfiguration, PathJoinSubstitution,
+                                  PythonExpression)
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
@@ -51,6 +52,15 @@ def generate_launch_description():
     delivery_lon = LaunchConfiguration('delivery_lon')
     use_nav2 = LaunchConfiguration('use_nav2')
 
+    # map->odom has exactly one publisher, and which one it is depends on
+    # whether FAST-LIO is both running AND engaged. Evaluated once here so the
+    # static publisher below and the estimator cannot both claim the link —
+    # `lio_tf:=true lio:=false` would otherwise leave it with none at all,
+    # which silently stops Nav2 planning rather than failing.
+    lio_owns_map_odom = PythonExpression([
+        "'", LaunchConfiguration('lio'), "'.lower() == 'true' and '",
+        LaunchConfiguration('lio_tf'), "'.lower() == 'true'"])
+
     return LaunchDescription([
         DeclareLaunchArgument('delivery_lat', default_value='nan'),
         DeclareLaunchArgument('delivery_lon', default_value='nan'),
@@ -61,6 +71,15 @@ def generate_launch_description():
         DeclareLaunchArgument('max_altitude_m', default_value='40.0'),
         DeclareLaunchArgument('max_range_m', default_value='2000.0'),
         DeclareLaunchArgument('require_plan_to_transit', default_value='true'),
+        DeclareLaunchArgument(
+            'require_costmap_to_fly', default_value='true',
+            description='Hold rather than move without a fresh costmap, and '
+                        'refuse at preflight a delivery outside the mapped '
+                        'area (1400 x 1400 m, so 700 m from the pad). This is '
+                        'the "never fly into a detected obstacle" guarantee. '
+                        'To reach further, widen the costmap in '
+                        'nav2_params.yaml — turning this off flies the leg '
+                        'unguarded and says nothing.'),
         DeclareLaunchArgument('transit_speed_mps', default_value='4.0'),
         DeclareLaunchArgument('transit_timeout_sec', default_value='300.0'),
         DeclareLaunchArgument('transit_timeout_margin', default_value='5.0'),
@@ -92,11 +111,56 @@ def generate_launch_description():
             'rviz', default_value='false',
             description='Open RViz with the delivery view (TF, Livox cloud, '
                         'costmap, planned path, landing target).'),
+        DeclareLaunchArgument(
+            'lidar', default_value='false',
+            description='Start the real Livox Mid-360 driver, so '
+                        '/livox/points comes from the sensor rather than from '
+                        'gazebo_scan_bridge. The mount transform is published '
+                        'either way — SITL needs it too. OFF by default: '
+                        'on the aircraft this normally runs as its own compose '
+                        'service (`--profile lidar`) so it can be restarted '
+                        'without taking the mission down. Use this for a '
+                        'single-launch bench bring-up, and never alongside the '
+                        'compose service — two drivers cannot share the '
+                        "sensor's UDP ports."),
+
+        DeclareLaunchArgument(
+            'lio', default_value='false',
+            description='Run FAST-LIO2: lidar-inertial odometry and 3D '
+                        'mapping from /livox/points plus an IMU. Unlike the '
+                        'two drone_slam nodes this SOLVES for the aircraft\'s '
+                        'pose instead of reading it from PX4, so it is the '
+                        'only thing here that can disagree with the flight '
+                        'controller. On its own it still moves no frame: see '
+                        'lio_tf.'),
+        DeclareLaunchArgument(
+            'lio_tf', default_value='false',
+            description='Let FAST-LIO correct map->odom instead of that link '
+                        'being a static identity. Requires lio:=true. This is '
+                        'the one argument here that changes what the aircraft '
+                        'flies over: the costmap is drawn in map, so engaging '
+                        'this slides previously-seen obstacles relative to the '
+                        'aircraft. lio_odom_bridge rate limits that slide and '
+                        'refuses jumps, but the correction has not yet been '
+                        'measured over a real delivery. Fly lio:=true alone '
+                        'first and read /arc/lio/correction_norm_m.'),
+        DeclareLaunchArgument(
+            'lio_config', default_value='mid360_sitl.yaml',
+            description='FAST-LIO parameters. mid360_sitl.yaml (PX4\'s IMU) '
+                        'or mid360_aircraft.yaml (the Mid-360\'s own IMU, the '
+                        'one to fly).'),
 
         # --- localization frame -------------------------------------------
+        # Static identity: PX4's EKF is the localization source, so odom is
+        # treated as globally consistent and coincides with map.
+        #
+        # Suppressed when FAST-LIO is engaged, because then lio_odom_bridge
+        # publishes this link instead. Two publishers of one link invalidates
+        # the transform tree and stops Nav2 planning.
         Node(
             package='tf2_ros', executable='static_transform_publisher',
             name='map_to_odom',
+            condition=UnlessCondition(lio_owns_map_odom),
             arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
         ),
 
@@ -115,6 +179,30 @@ def generate_launch_description():
         # PX4 message whose definition no longer matches this firmware (DDS
         # rejects it: "payload size 168 > 167"), and stabilized_tf_broadcaster
         # subscribes to demo/imu, a gazebo_ros topic that does not exist here.
+
+        # --- the sensor, and where it sits on the airframe -------------------
+        # Included ALWAYS, with the driver itself gated on `lidar`.
+        #
+        # The mount transform base_link -> livox_frame describes the AIRFRAME,
+        # not the driver, and it is needed in both worlds: on the aircraft the
+        # real driver stamps its cloud livox_frame, and in SITL
+        # gazebo_scan_bridge now stamps the same frame. So the sim resolves the
+        # identical chain and actually exercises the mount — which is the one
+        # number most likely to be wrong on the real aircraft, and whose
+        # failure mode is silent.
+        #
+        # The compose `lidar` service runs livox_mid360.launch.py separately
+        # with publish_mount_tf:=false, so the transform has exactly one
+        # publisher in every combination.
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution([
+                FindPackageShare('vision_landing'),
+                'launch', 'livox_mid360.launch.py'])),
+            launch_arguments={
+                'start_driver': LaunchConfiguration('lidar'),
+                'publish_mount_tf': 'true',
+            }.items(),
+        ),
 
         # --- flight-level filter (feeds the costmap) -----------------------
         # Must run whenever Nav2 does: the costmap's obstacle source is this
@@ -142,9 +230,15 @@ def generate_launch_description():
         ),
         # RViz2's Map display cannot render the costmap here (shader link
         # failure), so republish it as a point cloud, which draws fine.
+        #
+        # Gated on `rviz` for the same reason it exists: it is a display aid
+        # and nothing in the flight path consumes /arc/costmap_cloud. Run
+        # unconditionally it walked the whole 1800 x 1800 global costmap once a
+        # second on the companion computer with nobody watching.
         Node(
             package='vision_landing', executable='costmap_to_cloud',
             name='costmap_to_cloud', output='screen',
+            condition=IfCondition(LaunchConfiguration('rviz')),
             parameters=[{'use_sim_time': False}],
         ),
         Node(
@@ -221,6 +315,33 @@ def generate_launch_description():
             parameters=[{'use_sim_time': False}],
         ),
 
+        # --- FAST-LIO2 (optional) ------------------------------------------
+        # Lidar-inertial odometry and 3D mapping. The two drone_slam nodes
+        # above read the aircraft's pose from PX4 and draw with it; this one
+        # solves for the pose, so it is the only node here that can tell you
+        # PX4 is wrong.
+        #
+        # Consumes the same /livox/points as everything else, through a
+        # converter that branches off it rather than sitting in it — the
+        # costmap's obstacle source is unaffected whether this runs or not.
+        #
+        # With lio_tf:=false (default) it is an observer like the other two.
+        # With lio_tf:=true it takes over map->odom from the static publisher
+        # above, which is suppressed in that case.
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution([
+                FindPackageShare('vision_landing'),
+                'launch', 'fast_lio.launch.py'])),
+            condition=IfCondition(LaunchConfiguration('lio')),
+            launch_arguments={
+                'lio_config': LaunchConfiguration('lio_config'),
+                'lio_tf': LaunchConfiguration('lio_tf'),
+                # One `rviz:=true` opens every window, so the LIO view arrives
+                # with the others rather than needing its own flag.
+                'lio_rviz': LaunchConfiguration('rviz'),
+            }.items(),
+        ),
+
         # --- winch --------------------------------------------------------
         Node(
             package='vision_landing', executable='winch_bridge',
@@ -242,6 +363,8 @@ def generate_launch_description():
                 'max_range_m': LaunchConfiguration('max_range_m'),
                 'require_plan_to_transit':
                     LaunchConfiguration('require_plan_to_transit'),
+                'require_costmap_to_fly':
+                    LaunchConfiguration('require_costmap_to_fly'),
                 'transit_speed_mps': LaunchConfiguration('transit_speed_mps'),
                 'transit_timeout_sec': LaunchConfiguration('transit_timeout_sec'),
                 'transit_timeout_margin':

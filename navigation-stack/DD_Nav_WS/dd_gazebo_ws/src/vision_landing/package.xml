@@ -22,9 +22,13 @@
   <depend>nav_msgs</depend>
   <depend>nav2_msgs</depend>
   <depend>rclcpp_action</depend>
+  <!-- CustomMsg, for the cloud branch that feeds FAST-LIO2. -->
+  <depend>livox_ros_driver2</depend>
 
   <!-- Perception node launched by landing_pipeline.launch.py -->
   <exec_depend>zed_apriltag_streaming</exec_depend>
+  <!-- fast_lio.launch.py starts the estimator itself. -->
+  <exec_depend>fast_lio</exec_depend>
 
   <test_depend>ament_cmake_gtest</test_depend>
 

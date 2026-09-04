@@ -85,7 +85,8 @@ complete mission in simulation. Nothing in it has ever run on real hardware.
 | Build and deployment | Works from a clean checkout |
 | Link to the flight controller | Works in simulation; unverified against the actual Pixhawk |
 | Camera / AprilTag detection | Works in simulation; needs the real camera calibrated |
-| Obstacle avoidance | Works in simulation; **no driver for the real lidar yet** |
+| Obstacle avoidance | Works in simulation; the Mid-360 driver is now vendored and wired, but **has never seen a sensor** |
+| Position (where the aircraft thinks it is) | The flight controller's GPS estimate, trusted completely. FAST-LIO2 is now in the stack as a second opinion but is **off by default and has never been run** |
 | Winch | Runs the sequence in simulation; **never actuated in real life** |
 | Gimbal | Commanded correctly; **never swept against a protractor** |
 
@@ -93,17 +94,1195 @@ complete mission in simulation. Nothing in it has ever run on real hardware.
 
 | # | What | Who |
 |---|---|---|
-| 1 | Resolve the mid-air disarm risk in the landing logic (see 2026-09-01 entry, "Risks still open") | Software |
+| 1 | Fly the rewritten DELIVER sequence in simulation — the phase machine, the timeout, and the `retract_failed` path have never run | Software |
 | 2 | Bench-test the winch with a load and measure the real timings | Hardware |
 | 3 | Verify gimbal tilt direction and travel, props off, against a protractor | Hardware |
 | 4 | Generate the ZED camera calibration file | Software/Hardware |
-| 5 | Add a driver for the Livox lidar so obstacle avoidance has a sensor | Software |
+| 5 | Put the Mid-360 on the network and measure its mount — the driver is in, the two IP addresses and the mount transform are placeholders | Hardware |
 | 6 | Apply and export the PX4 parameters, including a geofence for the test site | Hardware |
 | 7 | Exercise a failsafe *during* a winch drop in simulation before trusting it with a real cable | Software |
+
+The mid-air disarm risk that headed this list is **closed** — see the
+2026-09-02 (late night) entry. A stalled descent now hands the last metre to
+PX4 AUTO.LAND instead of disarming.
 
 ---
 
 # Entries
+
+## 2026-09-03 (later) — FAST-LIO2: the aircraft can now check where it thinks it is
+
+**In one sentence:** FAST-LIO2, a lidar-inertial SLAM system, is now part of
+the stack — it works out the aircraft's position from the lidar and the IMU
+instead of taking the flight controller's word for it, and it is switched off
+by default until we have flown it enough to know whether to believe it.
+
+### What changed
+
+**The estimator itself.**
+
+- Vendored `fast_lio` (hku-mars FAST_LIO, `ROS2` branch, commit `a4743b0`)
+  into `navigation-stack/DD_Nav_WS/dd_gazebo_ws/src/fast_lio`, alongside the
+  Livox driver. `VENDORED.md` in that directory records the pin, the bundled
+  `ikd-Tree`, and the five local changes made to get it building on ROS 2
+  Jazzy. Four of the five are build-system fixes; the fifth makes its
+  transform frames configurable, because this stack allows exactly one
+  publisher per transform link and FAST-LIO's was hardcoded.
+
+**Three new nodes in `vision_landing`.**
+
+- `livox_pc2_to_custom` — converts `/livox/points` into the Livox message
+  format FAST-LIO reads, on a new topic `/livox/lidar_custom`. This is a
+  *branch* off the lidar cloud, not a link in it: `/livox/points` and
+  everything feeding the obstacle costmap are byte-for-byte unchanged.
+- `px4_imu_bridge` — publishes the flight controller's IMU as `/arc/imu`,
+  converted from PX4's axis convention to ROS's. Used in simulation only; on
+  the aircraft FAST-LIO uses the Mid-360's own built-in IMU.
+- `lio_odom_bridge` — takes FAST-LIO's answer and compares it with the flight
+  controller's, publishing the difference on `/arc/lio/correction_norm_m`.
+  When enabled it also applies that difference to the `map` → `odom`
+  transform, slowly and with limits (see below).
+
+**New launch arguments on `delivery.launch.py`.**
+
+- `lio:=true` — run the estimator. It publishes its answer and its
+  disagreement with PX4, and moves nothing.
+- `lio_tf:=true` — additionally let it correct the map. Requires `lio:=true`.
+- `lio_config:=mid360_aircraft.yaml` — switch from the simulation
+  configuration to the aircraft one. This single argument also selects the
+  matching IMU source and sensor offsets, so they cannot disagree.
+
+Parameters live in `vision_landing/config/fast_lio/`. Both files annotate
+every value that differs from upstream and why.
+
+### Why
+
+Everything in the stack that draws a map — the obstacle costmap, both existing
+SLAM views — currently trusts the flight controller's GPS-based position
+completely. The two `drone_slam` nodes are not exceptions: they read the
+position from PX4 and paint the lidar onto it, so they can show you a sensor
+that is aimed wrong, but they can never show you a *position* that is wrong,
+because they assume it.
+
+That matters because GPS is least accurate exactly where this aircraft is
+being asked to fly: low, near large buildings. If the position drifts, the
+obstacle map drifts with it, and the check that stops the aircraft flying into
+a building is evaluated against a map that is in the wrong place. Nothing in
+the stack could previously detect this.
+
+FAST-LIO2 is an independent second opinion. It fuses the raw 3D lidar points
+with the IMU at every scan and solves for the aircraft's motion from the
+geometry it sees. It is the first thing here capable of disagreeing with the
+flight controller — and `/arc/lio/correction_norm_m` is that disagreement, in
+metres, recorded in every flight bag.
+
+**Why it does not simply take over.** The obvious move is to make FAST-LIO the
+aircraft's position source. That was rejected. The flight controller flies on
+its own estimate and will keep doing so regardless of what ROS believes, so a
+second estimator does not replace it — it only adds a second opinion about
+where the map goes. FAST-LIO therefore adjusts the *map*, and the flight
+control loop is untouched. If the estimator dies mid-flight, the map stops
+being adjusted and the stack behaves exactly as it does today.
+
+**Why the correction is rate limited.** An occupancy map remembers where it
+put things. Move the map suddenly and every obstacle recorded earlier jumps
+relative to the aircraft at once — buildings smear, cleared space is re-marked,
+and the "am I about to hit something" check runs against a map that just
+teleported. So the correction is allowed to slide at 0.25 m/s and 2°/s, and a
+correction that arrives as a *jump* is refused outright rather than followed
+slowly. This is the same lesson as the setpoint rate limits earlier today: an
+aircraft handed a step answers it violently, and the fix is to limit the
+reference, not to soften the safety check.
+
+Beyond 20 m of disagreement the bridge disengages permanently, freezes the map
+where it was, and says so loudly. It does not re-engage on its own.
+
+### Hardware impact
+
+**One thing changed, and it is the mount.** The simulated Mid-360 is now
+**inverted** — still 0.15 m below the airframe, but rolled 180° so it looks
+*down* instead of up. The sensor's field of view is −7° to +52° about its own
+plane, which mounted the obvious way up points the cone at the sky.
+
+**The aircraft must be built to match.** Bolted the "right way up" under the
+airframe, the real Mid-360 cannot see the ground in cruise either — at 15 m a
+ground return inside its 40 m range needs 20.6° of depression and it has 7°.
+That is survivable for "do not hit a building taller than me" and useless for
+anything else. Mount it inverted.
+
+The two numbers that must agree — `mount_z` and `mount_roll` in
+`livox_mid360.launch.py`, and the sensor pose in `typhoon_h480.sdf.jinja` —
+are cross-referenced in both files. Nothing checks them automatically, and a
+mismatch puts every obstacle in the wrong place without complaining.
+
+The rest of the Mid-360 work already on the list is unchanged: get the sensor
+on the network, and measure the mount.
+
+Two notes for when that happens:
+
+1. **The mount measurement now matters more than it did.** The 0.15 m
+   "under_drone" offset is still a number copied from the simulation model and
+   never measured. It previously affected only where obstacles were drawn, to
+   under one map cell. It now also feeds the estimator's sensor geometry. A
+   wrong value does not fail — it biases the answer quietly. The number appears
+   in three files, and they are cross-referenced to each other.
+2. **The Mid-360's built-in IMU is now used.** No wiring or configuration
+   change — it is already published by the driver on `/livox/imu`. It just
+   means the sensor's IMU has to actually work, which nothing previously
+   depended on.
+
+### How it was verified
+
+**Brought up in SITL on the pad. The plumbing works; the estimator does not,
+and the reason is the simulated sensor rather than the code.**
+
+Builds:
+
+- `fast_lio` builds clean on ROS 2 Jazzy inside `arc-drone:jazzy`. Getting
+  there took three build failures, all recorded in `VENDORED.md` — the
+  significant one being that upstream pins C++14, which Jazzy's ROS libraries
+  reject with an error that points at ROS rather than at the flag.
+- Adding it required **no change to the Docker image**. The one dependency it
+  appeared to need (`pcl_ros`) turned out to be unused by the source.
+
+**Second run, full delivery flown, inverted mount + scene gate in place.** The
+mission flew the complete 596 m out-and-back: transit at 15 m, 57 obstacle
+replans, winch drop at Krach Lawn, return leg. `lio_tf` was false throughout,
+so none of the below touched the aircraft.
+
+- **Inverting the sensor transformed obstacle detection.** `flight_level_filter`
+  went from keeping **0 of ~1540** returns to **3886 of 9713**, and the global
+  costmap from **0 obstacle points to ~3685**. The cloud roughly sextupled,
+  from ~1540 points to ~9400. Avoidance did not regress; it substantially
+  improved, because the aircraft can now see anything that is not above it.
+- **The scene gate discriminates.** On the open pad it read 0.0% of returns
+  off the dominant plane and refused FAST-LIO outright. In transit it read
+  0.45–0.98 (median 0.81 over 1102 scans) and opened. The metric was
+  re-derived independently from a raw cloud and reproduced (80.7%).
+- **FAST-LIO itself still failed.** It diverged to 42.0 m, the tripwire
+  disengaged it, and it ended the flight emitting "No Effective Points!" — its
+  map had drifted so far that incoming scans no longer associate with it. The
+  published correction stayed at 0.00 m for all 5839 samples of the transit:
+  the guards held everything at identity, which is safe and is also nothing.
+- **It used 1.84 GB of RSS** by the end of the round trip. That alone
+  disqualifies the current configuration from the companion computer.
+
+The most likely cause is not yet established, but the strongest candidate is
+the IMU. `px4_imu_bridge` measured **44 Hz**, against the 100 Hz FAST-LIO
+wants — roughly four IMU samples per lidar frame, where the algorithm assumes
+tens. FAST-LIO also processed only 5 of the 10 scans per second it was offered.
+
+First run, aircraft stationary on the pad, upright mount, no gate:
+
+- The whole chain connects. `livox_pc2_to_custom` converts ~1540 points per
+  frame, `px4_imu_bridge` publishes, FAST-LIO initialises and produces
+  odometry at 5 Hz and registered clouds at 4.5 Hz. All four RViz windows open,
+  including the new FAST-LIO view.
+- `lio_odom_bridge` anchored `map` → `lio_odom` at (−0.04, 0.00, 0.04) — i.e.
+  the frame arithmetic lands on the identity when the aircraft is on the pad,
+  which is the right answer.
+- **The estimator then drifted 118 m in about 40 seconds without the aircraft
+  moving.** FAST-LIO placed it at (−84, +83, 1.1) m from a pad it never left.
+- **Every guard did its job.** Jump rejection refused seven relocalisation-sized
+  steps; the divergence tripwire fired at 20.1 m, disengaged permanently, froze
+  the correction at 7.0 m, and printed the correct diagnosis — "the lidar has
+  no structure in view and the solution has drifted on IMU alone". Because the
+  default is observer mode, no transform moved and the mission was unaffected.
+
+**Why it drifted, and it is not the algorithm.** The simulated Mid-360 in
+`typhoon_h480.sdf` has the sensor's real vertical field of view, −7° to +52° —
+mostly *upward* — and it is mounted under the airframe pointing that way. The
+consequences are geometric and were measured, not guessed:
+
+- On the pad only **4 of its 32 vertical rings point downward at all**, so the
+  entire scene is a flat ring of ground at 2.4 m radius. That constrains
+  height, roll and pitch, and constrains position and heading not at all. 1440
+  of 11520 rays return, which matches the ~1540 observed.
+- **In transit at 15 m it is worse.** A ground return inside the sensor's 40 m
+  range needs 20.6° of depression; the sensor has 7°, which puts the ground
+  122 m away. In cruise it sees nothing except structures taller than the
+  aircraft within 40 m.
+
+That is the open-ground degeneracy the design notes predicted before any of it
+ran — confirmed on the first attempt and worse than expected. It is what
+motivated inverting the mount.
+
+**Where this leaves FAST-LIO: not working.** Two real defects were found and
+fixed, and the estimator still does not converge. What has been earned is the
+scaffolding — the mount is right, the gate works, the guards are proven under
+two genuine divergences, and the whole thing is measurable from a bag. What has
+not been earned is a single second of trustworthy lidar-inertial odometry.
+
+Still unverified: that the estimator converges at all in this stack, at any IMU
+rate; that it holds over a delivery; that it fits in the companion computer's
+memory.
+
+### Risks still open
+
+- **`lio_tf:=true` has still never been run**, and on this evidence must not be
+  until the sensor question below is settled. The default is `lio:=false`, so
+  the mission is bit-for-bit unchanged unless someone asks for it.
+- **The blocking question is which way the Mid-360 actually points**, and it is
+  a hardware question, not a simulation one. The simulated mount reproduces the
+  sensor's true −7°/+52° field of view pointing upward from under the airframe.
+  If the real aircraft is mounted the same way, then the real aircraft also
+  cannot see the ground in cruise — which is fine for "do not hit a building
+  taller than me", which is all the costmap has ever been asked to do, and
+  fatally insufficient for a lidar-inertial estimator.
+
+  Inverting the sensor (roll 180°, giving −52°/+7°) would put ground returns
+  11.7 m away at transit height and give FAST-LIO a plane plus structures to
+  solve on. **That change has not been made**: it alters what the obstacle
+  costmap sees, and obstacle avoidance is the one part of this stack that
+  currently works. It needs a decision and a re-verification of avoidance, not
+  a quiet edit.
+- **The guards are proven, the estimator is not.** Jump rejection, the scene
+  gate, the divergence tripwire and observer mode all behaved correctly under
+  two real divergences (118 m parked, 42 m in flight). That is the backstop
+  working; it is not evidence that the thing it is backstopping works.
+- **1.84 GB of RSS after one round trip.** The ikd-Tree map grows with distance
+  flown and nothing prunes it. Even a converging estimator would need this
+  bounded before it goes near the companion computer.
+- **The IMU rate is the next thing to chase.** 44 Hz from
+  `/fmu/out/sensor_combined` against the 100 Hz FAST-LIO expects, and FAST-LIO
+  consuming only 5 of 10 scans per second. Neither is understood yet, and
+  either could be sufficient to explain the divergence.
+- **The two guards fight each other after open ground, and nothing fixes that
+  yet.** When the scene gate reopens, the first correction legitimately arrives
+  as a step — it is the drift accumulated while the gate was shut. The jump
+  filter rejected exactly that during this flight (1.50 m), which means the
+  correction can never recover after a degenerate stretch, and on this route
+  that is most of it. The fix is to re-seed on gate reopen and let the slew
+  limiter walk the map across; it is NOT in this commit, because it has never
+  been flown.
+- **The gate has never been seen to close at altitude.** It closed on the pad
+  and stayed open for the whole transit, because this route has structure in
+  view essentially throughout. Its behaviour over genuinely open ground at
+  15 m — the case it exists for — is still untested.
+- **Simulation cannot test the hardest part.** The simulated lidar captures a
+  whole frame in one instant, so there is no motion blur to remove. The real
+  Mid-360 sweeps for 100 ms, which at transit speed is 0.4 m of travel per
+  scan, and correcting for that is most of what makes this work on a moving
+  aircraft. That code path will first run on the real sensor.
+- **Not wired into the Docker Compose services.** Running it currently means a
+  manual `ros2 launch`. Deliberate: the compose files describe how the aircraft
+  flies, and this has not earned a place there yet.
+- **`lio_odom_bridge` assumes the lidar is mounted square** — no roll, pitch or
+  yaw in the mount. That is true today and matches the launch file defaults,
+  but a tilted mount would silently invalidate its sensor-offset arithmetic.
+
+## 2026-09-03 — Why the aircraft kept falling out of the sky, and three gaps closed
+
+**In one sentence:** four attempted flights on the long route all failed, and
+the flight log says why — Nav2 alternated between two ways round a large
+building, the mission followed each new plan instantly, and the resulting 180°
+command reversals every second and a half drove the airframe into a tumble;
+that is now fixed, along with an obstacle map that was smaller than the routes
+we fly, a safety flag with no operator control, and a simulation that never
+tested the lidar's mount.
+
+### The map was smaller than the mission
+
+The global costmap was 900 × 900 m centred on the pad — 450 m of reach. The
+documented IM Gold → Krach Lawn delivery is at NED **north −96, east +588**, so
+**139 m outside it**. With the new preflight check that refuses a delivery
+outside the mapped area, that route stopped being flyable at all; without the
+check it would have flown with the last 139 m unguarded and nothing logged.
+
+Neither is acceptable, so the map is now **1400 × 1400 m at 0.75 m**, origin
+(−700, −700). The size is derived rather than picked:
+
+```
+MAX_RANGE_M (docker/.env, the hardware fence)  500 m
+detour / approach margin                     + 200 m
+                                             = 700 m radius
+```
+
+**The costmap radius must be the largest of the operational numbers**, because
+it is the only one that carries an obstacle guarantee. `docker/.env` now says
+so next to the value, and names the third number (`max_range_m`'s 2000 m launch
+default, the outer companion geofence) so all three are visible in one place.
+
+**The resolution is 0.75 m, and that was not the first guess.** 1400 m at the
+previous 0.5 m is 2800 × 2800 = 7.84 M cells. It was tried, flown, and this
+stack cannot afford it — two independent failures, both measured in SITL:
+
+- `planner_server` ran its loop at **2.4–7 Hz** against a desired 20, so a
+  replan landed roughly every 6 s. With `path_stale_sec` at 5 s, every plan
+  spent part of its life "stale" and the mission intermittently fell back to
+  holding for a route it already had.
+- Worse, and intermittent: on one start the **Nav2 lifecycle manager stalled at
+  "Configuring planner_server"**. The configure took long enough that the
+  `change_state` response was lost — `failed to send response … client will not
+  receive response` — so the costmap was never activated. The mission then sat
+  in preflight reporting that no costmap had arrived. It had not, and never
+  would.
+
+0.75 m over the same 1400 m is 1867 × 1867 = **3.48 M cells**, within a few
+percent of the 900 m × 0.5 m map this stack is known to run, while keeping the
+full 700 m of reach. **Coarsen, don't shrink** — shrinking silently gives back
+range. 0.75 m cells are ample for a 0.6 m airframe going *around* buildings
+tens of metres across at 15 m rather than threading gaps.
+
+`inflation_radius` on the global costmap goes 0.65 m → **1.5 m** to match. At
+0.65 m it would have been under a single 0.75 m cell, which is no inflation at
+all — the planner would have been free to graze a building corner. 1.5 m is
+also simply the clearance a 0.6 m airframe should be keeping.
+
+Two related settings follow from the same measurement. `path_stale_sec` goes
+5 s → **15 s**, which is not a weakening of the obstacle guarantee: the plan is
+re-tested against the live costmap on every 20 Hz tick, so "stale" means
+"computed a while ago", not "unchecked". And `expected_planner_frequency` goes
+20 → 1.0, so Nav2's rate warning means something again instead of printing on
+every cycle.
+
+### The guarantee had no switch
+
+`require_costmap_to_fly` became load-bearing in the previous entry — it now
+gates preflight, not just in-flight movement — but it was a bare node parameter
+with no way to set it from a launch command or the environment. It is now a
+declared launch argument on both `delivery.launch.py` and
+`landing_pipeline.launch.py`, and `REQUIRE_COSTMAP_TO_FLY` in `docker/.env`,
+alongside `require_plan_to_transit` which was already plumbed that way.
+
+Its description says what turning it off actually costs, because that is the
+only reason anyone would look it up.
+
+### The simulator now tests the mount
+
+`gazebo_scan_bridge` stamped its cloud `base_link`. The real driver stamps
+`livox_frame` and relies on a `base_link → livox_frame` transform to place the
+returns. So the simulation folded the 0.15 m mount offset silently away — an
+error smaller than one costmap cell, and therefore harmless — but it also meant
+**nothing in simulation ever looked up that transform.** The mount is the
+number most likely to be wrong on the real aircraft and its failure mode is
+silent: obstacles land in the wrong place and the map merely looks "a bit off".
+
+Now the bridge stamps `livox_frame` too, and `delivery.launch.py` publishes the
+mount transform **unconditionally** — it describes the airframe, not the
+driver, and both worlds need it. `livox_mid360.launch.py` gained `start_driver`
+(false in SITL: transform only, no sensor) and `publish_mount_tf` (false for
+the compose `lidar` service, since the mission service alongside it already
+publishes the airframe geometry), so the transform has exactly one publisher in
+every combination.
+
+Both worlds now resolve the identical chain:
+
+```
+map -> odom -> base_footprint -> base_link -> livox_frame
+```
+
+### The flight recorder had stopped recording
+
+Found while reviewing the working tree after the first flight: `git status`
+held an untracked 21 MB `mission_bag/` in the repo root, and the launch log
+held this, once, in a wall of other lines:
+
+```
+[ERROR] [ros2bag]: Output folder 'mission_bag' already exists.
+[ERROR] [ros2-19]: process has died [pid 69, exit code 1, cmd 'ros2 bag record -o mission_bag ...']
+```
+
+`bag_dir` defaulted to `mission_bag`, a fixed name in the current directory.
+`ros2 bag record -o` **refuses to start when the directory already exists**, so
+the first flight recorded and **every flight after it silently did not**.
+Measured on this session: three SITL flights, one recording. The two that would
+have been most worth having — the ones that failed — are the two that were not
+recorded.
+
+The readiness review calls the bag "the only record of WHY the software did
+something", which makes a recorder that stops after the first run worse than no
+recorder, because nobody thinks to check. And the fixed name landed in the repo
+root when launched the documented way, one `git add -A` from being committed.
+
+`bag_dir` now defaults to a **timestamped** directory under `bags/` —
+`bags/mission_20260903_034519` — which is both collision-proof and already
+covered by `.gitignore`. `mission_bag*/` is added to `.gitignore` too, for the
+ones already on disk.
+
+### The occupancy grid was smaller than the flight
+
+The grey square in the navigation RViz window is `drone_slam`'s occupancy grid
+— not the Nav2 costmap, which cannot render here at all (the shader link
+failure that `costmap_to_cloud` exists to work around). It was hard-coded to
+`MAP_SIZE_M = 200.0`: **±100 m of the pad**, on deliveries of several hundred
+metres. The aircraft spent five sixths of the flight off the edge of its own
+map, which is precisely the view you do not want when that map is the check
+that the lidar is mounted and aimed correctly.
+
+It is now **1400 m at 0.75 m — deliberately the same extent and resolution as
+the Nav2 global costmap**, so the two grids line up cell for cell in RViz and
+one number describes the operating area. `map_size_m`, `map_resolution` and
+`map_pub_hz` are ROS parameters now rather than module constants; editing a
+constant to fly a longer mission is how the map ended up smaller than the
+flight in the first place.
+
+**The blocker to scaling it up was serialisation, not the grid.**
+`msg.data = prob.flatten().tolist()` converts the grid to a Python list element
+by element. Measured per publish on this machine:
+
+| Grid | `.tolist()` | `array.array` |
+|---|---|---|
+| 1000² — 200 m @ 0.2 m (old) | 0.070 s | 0.006 s |
+| 1866² — 1400 m @ 0.75 m (new) | 0.214 s | 0.023 s |
+| 2800² — 1400 m @ 0.5 m | 0.657 s | 0.084 s |
+
+At the old 2 Hz the *old* map already spent ~28% of a core there — which is the
+"about 25% of one core" this node was previously credited with. Scaling up
+naively would have been fatal: 1400 m at 0.5 m takes 1.0 s per publish against
+a 0.5 s timer. Switched to `array.array` (which rclpy takes straight through)
+and 1 Hz, a map **49× the area costs less than the old one did**.
+
+The saved view was the other half of the problem: `nav.rviz` was
+`TopDownOrtho` at `Scale: 11` — 100 m across an 1100 px window — so a larger
+map would have changed nothing visible. Now `Scale: 1.4` centred on (300, −50):
+786 m across, framing the pad, the route and the destination.
+
+### Three RViz windows will fail a SITL flight on one machine
+
+Flight 3 ended `EKF position invalid — failsafe landing`. That is not a stack
+defect; the mission did exactly the right thing. It is the machine:
+
+```
+load average: 30.50   (16 cores)
+%CPU   COMMAND
+ 332   rviz2
+ 224   rviz2
+ 166   rviz2
+ 132   gzserver
+ 128   px4
+  94   slam_3d_node
+  79   slam_node
+```
+
+**The three RViz windows were consuming more than seven cores between them**,
+PX4 runs in lockstep with Gazebo, and the EKF starved until the local position
+went invalid. The log already records the same failure mode for the 933 MB
+campus mesh — "the simulation is starved enough that the GPS plugin never
+delivers a fix" — and for `gzclient`, which costs about half the real-time
+factor. RViz is worse than either.
+
+Widening the costmap made this sharper: `costmap_to_cloud` now renders a
+1866² grid rather than 1800², and RViz draws every cell of it.
+
+**Validate with `rviz:=false` and `slam_3d:=false`, and open the windows to
+look at things afterwards.** Watching the flight and flying the flight are not
+free to do at the same time on one laptop.
+
+### Stale comments corrected
+
+`mission_controller.cpp` still described the global costmap as "a ROLLING
+WINDOW centred on the vehicle" in the passage explaining why Nav2 goals are
+clamped to a carrot. It has been fixed and persistent since the "(night)"
+entry. The carrot stays, for reasons that turn out to have nothing to do with
+map size — a nearer goal is far cheaper to plan over a 7.84 M-cell grid, and
+re-issuing it is what re-checks the route against what the lidar has seen since
+— so the code was right and only the reasoning printed beside it was wrong.
+
+### Hardware impact
+
+- **Costmap memory and bandwidth are now the open question on the Jetson.**
+  ~7.8 MB per grid at 1 Hz, 7.84 M cells per layer. Measure it before the first
+  hardware flight; the 0.75 m lever above is the answer if it is too much.
+- **`MAX_RANGE_M` stays at 500 m** — deliberately conservative, and now
+  comfortably inside the mapped area rather than unrelated to it. Raising it
+  past 700 m without widening the costmap first will get the flight refused at
+  preflight, with all the numbers in the message.
+- Nothing to wire.
+
+### The progress watchdog, and two flights spent getting it right
+
+The no-progress watchdog aborts a leg the planner cannot solve. Flying the
+596 m route showed both that its threshold was too tight **and** that an
+attempt to fix it properly was worse than the problem.
+
+**Flight 1 — `no progress for 90 s, closest approach still 181 m`.** The route
+runs into the **France A. Córdova Recreational Sports Center: 108 × 197 m, 20 m
+tall, squarely across the path**. Skirting nearly 200 m of wall does not reduce
+the straight-line distance to the goal at all. The aircraft was working — it
+found steps and took them, climbed to 25 m, was making its way around the north
+end — and the watchdog failsafe-landed it.
+
+**So progress was re-defined as distance remaining along the planned route**,
+which should shrink however sideways the detour is. That is wrong here, and
+**flight 2 proved it in the clearest possible way**: the aircraft flew from
+595 m to 252 m from the goal in a steady, almost unbroken decline, with two
+brief holds in nine minutes — and was failsafe-landed reading
+
+```
+no progress for 180 s — best route remaining still 30 m, 249 m from the goal
+```
+
+The plan this mission holds is a plan to the **carrot**, not to the
+destination: `nav2_goal_max_range_m` caps it at 45 m. Route-remaining therefore
+sits at 30–45 m for the entire leg and never improves, however well the flight
+is going. The aircraft was fine; the metric was not.
+
+**Reverted.** Progress is the best straight-line distance to the goal, as it
+was, and `no_progress_sec` goes 90 → **300 s** — enough for the largest detour
+this world contains at the ~1.7 m/s this airframe actually achieves against a
+4 m/s command. The transit deadline (744 s on this route) remains the real
+backstop for a stuck leg; this watchdog only stops the aircraft burning all of
+it on something it will never solve.
+
+The error message now prints both numbers — best approach *and* current
+distance — because printing only one is what made flight 2's failure look
+plausible for a moment.
+
+### How it was verified
+
+**The widened costmap allocates and publishes.** `planner_server` with these
+parameters comes up clean and publishes `width: 2800, height: 2800,
+resolution: 0.5, origin (−700, −700)`, no errors, RSS 97 MB.
+
+**Flown in SITL, on the route this unblocked.** Full stack on the Purdue campus
+world — PX4 SITL headless, DDS agent, host lidar bridge, mission container with
+all three RViz windows, 2D and 3D mapping, bag recording — with the delivery set
+to Krach Lawn, the 596 m route that the 450 m map had put out of bounds:
+
+```
+Delivery to (40.4280586, -86.9210457) — NED (-96.9, 587.6), 595 m away
+STATE IDLE -> WARMUP -> TAKEOFF -> TRANSIT
+```
+
+**Preflight passed, including the new costmap-coverage gate** — the route that
+was refused before this change is accepted and flown. The transit itself ran
+595 → 252 m with two brief holds before the watchdog bug above ended it.
+
+**The start-request expiry fired for real**, and correctly: on one attempt Nav2
+had not published a costmap within 60 s of the start being pressed, and the
+mission logged `Start request expired after 60 s without passing preflight —
+publish /arc/mission/start again once the warnings above clear`. That is the
+designed behaviour, but it means the runbook must wait for the costmap before
+pressing start; the SITL runbook now blocks on the topic.
+
+The simulator's transform chain resolves end to end: `map → livox_frame` reads
+translation `(-0.005, -0.005, -0.115)` on the pad, which is the 0.15 m mount
+below a `base_link` sitting 0.035 m up. **The mount is exercised in simulation
+for the first time.** The flight-level filter behaves as designed at both
+extremes — `kept 0 of 1537 returns (band 1.5..5.9 m)` on the ground, where the
+hard floor keeps the ground plane out of the map, and `kept 135 of 506 returns
+(band 12.4..20.9 m)` at transit altitude, where buildings mark.
+
+### ROOT CAUSE FOUND: the aircraft was flown unstable by its own commands
+
+**The estimator was innocent. So was the CPU, and so was the scenery.** Four
+flights on the 596 m route failed; two on the watchdog bugs above, and two with
+`EKF position invalid`. That second pair is now diagnosed, from PX4's own
+flight log rather than from the ROS side, because the ULog carries
+`vehicle_local_position_groundtruth` and the ROS bag does not.
+
+**The evidence, in the order it settles the question.**
+
+*1. PX4 was already complaining, in its own words:*
+
+```
+0:03:34 WARNING: [health_and_arming_checks] Preflight Fail: Attitude failure (roll)
+0:03:42 WARNING: [mc_pos_control] invalid setpoints
+0:03:42 WARNING: [mc_pos_control] Failsafe: blind land
+0:03:42 WARNING: Failsafe activated: Autopilot disengaged, switching to Descend
+```
+
+An **attitude** failure, seconds *before* anything was said about position.
+
+*2. The estimate was tracking the truth almost exactly until after the trouble
+started.* Estimated roll/pitch against ground-truth roll/pitch:
+
+| t (s) | estimated roll | truth roll | \|gyro\| °/s | truth \|v\| m/s |
+|---|---|---|---|---|
+| 196 | 2.5 | 2.5 | 15 | 3.76 |
+| 199 | −32.1 | −32.0 | 198 | 1.47 |
+| 202 | 40.6 | 39.0 | 213 | 1.35 |
+| 206 | 54.7 | 54.9 | 293 | 1.82 |
+| 213 | 48.5 | 49.9 | 100 | 0.42 |
+| 214 | 71.3 | **86.6** | 132 | 1.47 |
+| 217 | 0.2 | **85.2** | 174 | 2.93 |
+| 221 | −7.1 | **−89.6** | 103 | 0.50 |
+
+Agreement to within ~1.5° up to t≈213, then divergence. `xy_valid` drops at
+t=221.2. **The estimate went wrong because the aircraft was lost, not the other
+way round.**
+
+*3. And the truth itself is the story.* Look down the truth column: the
+airframe is swinging −32°, +39°, −24°, +55° with gyro rates to 293 °/s while
+its velocity oscillates 3.7 → 0.4 m/s. Peak accelerometer magnitude 152 m/s²
+against a 11.1 m/s² baseline. **The aircraft was thrashing from t≈198 and
+tumbling past 87° of roll by t≈214.**
+
+*4. It hit nothing.* A point-in-polygon test of the whole flight against all 26
+real footprints — ground truth position, each sample's own altitude against
+each building's own height — finds **zero** samples inside a building below its
+roof. (An earlier pass used bounding boxes and wrongly concluded it had flown
+into the Córdova centre. Bounding boxes are not footprints.)
+
+*5. So what was commanding it?* The commanded position setpoint against actual
+position, from the log:
+
+```
+t=199.0  sp N=-20.3  act N=-24.2   commanded 4 m NORTH
+t=200.5  sp N=-24.4  act N=-20.2   commanded 4 m SOUTH   (reversed)
+t=202.0  sp N=-18.3  act N=-22.2   NORTH                 (reversed)
+t=204.2  sp N=-19.7  act N=-15.6   SOUTH                 (reversed)
+t=205.8  sp N=-12.4  act N=-16.5   NORTH                 (reversed)
+```
+
+**The commanded direction reversed through 180° roughly every 1.5–2 s**, and
+the position error sat pinned at **3.7–4.1 m continuously** for the whole leg.
+
+**The mechanism.** Nav2, asked to route around a building 108 × 197 m, has two
+reasonable answers — north about and south about — and alternated between them.
+`fly_guided_leg` adopted each new plan unconditionally and commanded a point a
+fixed 4 m along it. So every replan became a 4 m step position demand in the
+opposite direction, against 3.5 m/s of existing momentum, with no velocity
+feedforward to shape it. A multirotor answers that with full attitude
+authority. Repeated at roughly 0.5 Hz, it pumped the attitude loop until the
+airframe tumbled.
+
+Two things made the alternation worse: every blocked tick set
+`transit_goal_sent_ = false`, re-requesting a plan at 20 Hz when Nav2 could
+answer about every 6 s; and the fixed 4 m carrot meant the aircraft was
+*permanently* saturated, sitting at −25° of pitch, so each reversal started
+from an already-extreme state rather than from trim.
+
+### The fix
+
+**1. The commanded direction is rate-limited** —
+`bearing_rate_limit_deg_s`, default **45 °/s**. A 180° reroute becomes a 4 s
+arc instead of a one-tick slam.
+
+Applied **before** the obstacle checks, deliberately: steps 5 and 6 of
+`fly_guided_leg` now validate the direction actually about to be commanded,
+not the raw planner output. Smoothing a reference must never smooth it past a
+safety check. The filter also advances on ticks where the aircraft is *not*
+allowed to move, so a reversed plan cannot deadlock against a stale bearing —
+by the time a block clears, the commanded direction is already part-way round.
+
+**2. Forced replans are rate-limited** — `replan_min_interval_sec`, default
+**2.0 s**, replacing the unconditional `transit_goal_sent_ = false` on every
+blocked tick. Asking sixty times for each answer is what made the alternation
+visible to the controller.
+
+### Flying it found the second half
+
+The bearing limiter worked, and measurably — the same metric run on the before
+and after logs, over the whole flight:
+
+| | flight 4 (before) | flight 5 (after) |
+|---|---|---|
+| commanded-direction ticks turning >120 °/s | 103 | **37** |
+| max roll reached | 180° (inverted) | 86.1° |
+| max gyro | 994 °/s | 617 °/s |
+
+**And it still failed.** Because flight 5's trigger was a different
+discontinuity, in the same family. From its log, the instant a hold ended:
+
+```
+t         spN    actN    err | roll  | yaw_sp
+232.8    37.0    37.0   0.00 |  -0.1 |   96     holding
+233.8    33.0    36.7   3.98 |  45.1 |  157     moving
+```
+
+**Two step demands in one tick.** The position error went 0 → 3.98 m, and the
+commanded yaw jumped 61°. Roll answered with 45° immediately.
+
+Both had the same shape of cause. A hold commands the aircraft's own position
+and its own heading; a move commands a point 4 m ahead and the direction of
+travel — which had gone on rotating throughout the hold, because the bearing
+filter keeps running while blocked. Nothing connected the two references
+across the transition.
+
+**Fix, part two — two more limits, both on the reference, neither on the
+safety checks.**
+
+**A global commanded-yaw rate limit**, `yaw_rate_limit_deg_s`, default 60 °/s,
+applied inside `publish_setpoint` *and* `publish_land_setpoint`. Those are the
+only two places a setpoint leaves this node, which makes them the only two
+places that can guarantee the invariant: **no setpoint the mission sends ever
+steps the attitude reference.** 60 °/s is well above anything asked for
+legitimately — SEARCH sweeps at 11.5 °/s — so it only ever bites a step.
+
+**An asymmetric carrot ramp**, `carrot_ramp_m_s`, default 2.0 m/s. The lead
+distance may only *grow* at that rate, reaching the full 4 m in two seconds; it
+collapses to zero the instant a hold begins.
+
+**The asymmetry is the safety-preserving part and is deliberate.** Ramping the
+growth costs two seconds of gentler acceleration. Ramping the *collapse* would
+mean the aircraft kept being commanded forward for a second after an obstacle
+appeared — and stopping immediately is the entire purpose of a hold. Smooth on
+the way up, instant on the way down.
+
+**Deliberately NOT changed, and why.** The obvious further fix is velocity
+feedforward: publish `TrajectorySetpoint.velocity` alongside the position and
+set `OffboardControlMode.velocity = true` (the plumbing already exists —
+`publish_offboard_mode(bool)` is there and used once, for the landing
+descent). That would stop a 4 m position error demanding whatever
+`MPC_XY_VEL_MAX` allows, and it is the standard way to fly a guided leg.
+
+It is not in this change because the persistent 4 m saturation is the
+*amplifier*, not the cause — it was present on every previous flight,
+including the ones that completed — and because it changes the offboard
+control mode for every state that moves the aircraft. One change aimed at the
+demonstrated root cause, validated on its own, then that. This log already
+records what happens when a control-path fix is made at speed without
+understanding it.
+
+### It flies
+
+**Flight 6 completed the mission.** The first end-to-end delivery since the
+DELIVER rewrite, on the 596 m route that ended the five flights before it:
+
+```
+IDLE -> WARMUP -> TAKEOFF -> TRANSIT -> DELIVER -> RETURN
+     -> SEARCH -> GOTO_TAG -> LAND -> LANDED
+Arrived at delivery point (1.96 m) — descending to winch altitude
+Package delivered and winch stowed — RETURN to launch
+Handing the last metre to PX4 AUTO.LAND (no touchdown detected in time).
+```
+
+The same metric across all three logs, read complete this time:
+
+| | flight 4 | flight 5 | **flight 6** |
+|---|---|---|---|
+| commanded-direction ticks >120 °/s | 103 | 37 | **21** |
+| max roll | **180°** (inverted) | 86.1° | **36.4°** |
+| max gyro | 994 °/s | 617 °/s | **400 °/s** |
+| mean setpoint error | 31.4 m | 18.3 m | **3.61 m** |
+
+36.4° of roll is ordinary manoeuvring. The tumble is gone.
+
+**Three things ran for the first time since they were written.**
+
+*The winch phase machine*, which was the highest-severity finding of the code
+review, executed its full sequence under real timing rather than completing one
+tick after it began:
+
+```
+DELIVER: winch 'released',   phase 'retracting'
+DELIVER: winch 'retracting', phase 'retracting'   (~14 s)
+Package delivered and winch stowed — RETURN to launch
+```
+
+Note `winch 'released', phase 'retracting'` — the mission advanced its own
+phase, sent `retract` exactly once, and the winch then caught up. The old code
+would have flown home with the package on the hook about 50 ms after commanding
+"lower".
+
+*The per-leg state reset*, exercised on `RETURN -> SEARCH -> GOTO_TAG` — the
+transition that used to inherit a stale `best_dist_` and failsafe-land on its
+opening tick.
+
+*The landing*, which retried twice on `Tag lost during descent` — the AprilTag
+library reporting `fix_pose_ambiguities(): more than one new minimum found` as
+the tag fills the frame — reacquired within 250 ms each time, descended 5.08 m
+to 0.50 m, and handed the last metre to PX4 AUTO.LAND. That is the designed
+finish with no rangefinder fitted, and the retry path behaved exactly as
+specified.
+
+### How this was diagnosed, for the next person
+
+The ROS bag could not have answered this. `/fmu/out/vehicle_local_position_v1`
+is the *estimate*, and the estimate is what went wrong — an analysis built on
+it concluded, wrongly, that the aircraft had flown into a building. PX4's own
+ULog carries `vehicle_local_position_groundtruth` and
+`vehicle_attitude_groundtruth` alongside the estimate, which is what makes
+"the aircraft moved" separable from "the estimate moved" in a single file.
+
+They are in `PX4-Autopilot/build/px4_sitl_default/rootfs/log/<date>/*.ulg`,
+readable with `pyulog` (`ulog_messages` for the text, `ULog(...)` for the
+series). **Start there, not with the bag.**
+
+### Risks still open
+
+- **One completed flight is one completed flight.** Flight 6 flew the route
+  end to end with no failsafe, but a single run is not a demonstration of
+  reliability — the readiness gate asks for ten consecutive. The five failures
+  before it were not identical, and two of them only appeared once the one
+  before had been fixed.
+- **The landing needed two retries** on tag loss during descent, and finished
+  under PX4 AUTO.LAND rather than under mission control. That is the designed
+  behaviour without a rangefinder, but the tag-tracking margin at 4-5 m is
+  visibly thin and worth a look before anyone trusts it over a real pad.
+- **Velocity feedforward is still missing**, so the aircraft continues to fly
+  every guided leg at a saturated 4 m position error and around −25° of pitch.
+  That is the amplifier described above. It is the next change, and it wants
+  its own validation run.
+- The costmap cost is measured on a laptop, not a Jetson.
+- Everything the previous two entries left open is unchanged: the rewritten
+  delivery sequence, the winch bench test, the gimbal sweep, the ZED
+  calibration, the PX4 parameter set, and a Mid-360 that has never been
+  connected to anything.
+- **`DELIVER`, `SECURE_PAYLOAD` and the landing sequence were never reached**
+  in any of the four flights. Everything downstream of TRANSIT remains
+  unexercised since the rewrite.
+
+---
+
+## 2026-09-02 (overnight, later) — The lidar has a driver
+
+**In one sentence:** the Livox Mid-360 now has a driver in the repo, a place in
+the transform tree and a documented bring-up, so obstacle avoidance has a
+sensor on the aircraft for the first time — everything that can be closed
+without the hardware in hand is closed.
+
+### What changed
+
+**`livox_ros_driver2` is vendored**, at
+`navigation-stack/DD_Nav_WS/dd_gazebo_ws/src/livox_ros_driver2/` — version
+1.2.7, pinned by commit `4a1def92` (2026-07-31). Vendored rather than cloned at
+build time for the same reason the AprilTag library is pinned to a tag: a field
+laptop with no internet must still be able to build the flight stack, and this
+is a flight dependency, not a convenience. It is 1.2 MB.
+
+Version matters here. **1.2.6 is the release that added Ubuntu 24.04 and ROS 2
+Jazzy support**, which is what `arc-drone:jazzy` runs; 1.2.7 is the current head
+and adds a fix for "no point cloud published when all config items are
+omitted". Pinned by commit because 1.2.7 is not tagged yet.
+
+**`Livox-SDK2` is built into the image**, pinned to commit `08f523c9` of the
+same day. The driver links `liblivox_lidar_sdk_shared.so` with a `REQUIRED`
+`find_library`, so without it the workspace fails at CMake configure time.
+Livox releases the two together — bump them together or not at all. `libapr1-dev`
+was added alongside; the driver's CMake looks for it via `pkg-config`.
+
+**The driver's own launch files are not used, and that is the important part
+of this entry.** `livox_ros_driver2` ships two per sensor:
+
+| | |
+|---|---|
+| `msg_MID360_launch.py` | publishes Livox's own `CustomMsg` |
+| `rviz_MID360_launch.py` | publishes `PointCloud2` — and also starts RViz |
+
+Nav2's obstacle layer reads `PointCloud2` only, and `flight_level_filter` reads
+it with a `PointCloud2ConstIterator`. **Nothing in this stack can read a
+`CustomMsg`, and the failure is silent:** the driver runs, the topic appears in
+`ros2 topic list`, the costmap stays empty, and the mission refuses to transit
+with "waiting for a Nav2 route". The compose file's placeholder command — written
+before the driver existed — pointed at exactly that launch file.
+
+So there is a new one: **`vision_landing/launch/livox_mid360.launch.py`**. It
+sets `xfer_format: 0` (PointCloud2), remaps `/livox/lidar` to **`/livox/points`**
+— the topic `gazebo_scan_bridge` publishes in SITL, so the flight code is
+byte-identical between simulation and the aircraft — and publishes the sensor's
+mount transform.
+
+**The mount is a launch parameter, not a constant.** `base_link → livox_frame`
+defaults to 0.15 m below the airframe, matching `sim/models/typhoon_h480.sdf`.
+Nav2 derives its raytracing origin from the cloud's frame, so this transform is
+what decides where every obstacle is placed.
+
+**Configuration and documentation.**
+`vision_landing/config/livox/MID360_config.json` holds the Livox network
+config, with a `README.md` beside it explaining every field, and
+`docker/README.md` gains a Mid-360 bring-up section with the five commands that
+tell you whether it is working.
+
+**Two local patches to upstream**, both recorded in the package's `VENDORED.md`:
+
+- `package.xml` is committed. Upstream ships `package_ROS1.xml` and
+  `package_ROS2.xml` and expects its `build.sh` to copy one into place; a plain
+  `colcon build` over `src/` sees a directory with no manifest and **skips the
+  package silently**. `build.sh` itself is deleted — it runs
+  `rm -rf ../../build/ ../../install/`, which in a shared workspace would take
+  every other package with it.
+- `CMakeLists.txt` defaults `DISTRO_ROS` from `$ENV{ROS_DISTRO}`. Upstream
+  expects it passed on the command line; unset, it silently takes the
+  pre-Humble typesupport path and fails at link time with a missing `rosidl`
+  symbol. Our entrypoint, the SITL runbook and hand builds are four places that
+  would each have to remember the flag.
+
+**Wiring.** The compose `lidar` profile now launches our file instead of the
+placeholder, and `delivery.launch.py` gains `lidar:=true` for a single-launch
+bench bring-up. Not both at once — two drivers cannot share the sensor's UDP
+ports.
+
+**One unrelated correction.** `cloud_to_scan.cpp`'s height-band comment still
+said the Mid-360 "sits above the airframe". It was moved underneath on
+2026-09-02. The band is measured from the sensor so the numbers did not change,
+but the reasoning printed next to them was wrong.
+
+### Why
+
+The costmap had no observation source on the aircraft at all. Since the
+2026-09-02 evening entry the mission refuses to transit without a plan rather
+than degrading to a blind straight line, so the practical effect of a missing
+lidar was that a hardware delivery would abort on the pad. Safe, and not a
+delivery aircraft.
+
+The `CustomMsg` trap is worth the space it takes above because it is the exact
+shape of failure this project keeps hitting: a component that runs, reports
+nothing wrong, publishes on the topic you expected, and delivers data nobody
+downstream can read. The versioned PX4 topic names, the QoS mismatch in
+perception, the calibration variable named two different things — same family.
+
+### Hardware impact
+
+**This is the entry for the hardware team.** Everything below needs the
+aircraft.
+
+- **The sensor is a wired Ethernet device on its own subnet, and two addresses
+  have to agree.** The sensor's own IP is `192.168.1.1xx`, where `xx` is the
+  **last two digits of the serial number** on the body. The Jetson needs a
+  static address on that subnet — `192.168.1.5/24` in the shipped config —
+  brought up on boot, or the driver starts before the interface does and binds
+  to nothing. Both are in
+  `vision_landing/config/livox/MID360_config.json` and **both shipped values
+  are placeholders.**
+- **The two failures look different.** A wrong host IP is loud — `bind failed`
+  / `Init lds lidar fail!` — but **the node stays up publishing nothing at
+  all**, so seeing it in `ros2 node list` proves nothing. A wrong sensor IP
+  binds fine and is expected to be quiet. `ping` the sensor first, then
+  `ros2 topic hz /livox/points`.
+- **Measure the mount.** `mount_x/y/z` and `mount_roll/pitch/yaw` on
+  `livox_mid360.launch.py` default to 0.15 m below `base_link`, taken from the
+  simulated model and never measured on the real airframe. A wrong mount
+  transform does not fail — it puts obstacles in the wrong place, which reads
+  as the map being "slightly off" right up until the aircraft flies into
+  something.
+- **Record the firmware version.** The Mid-360 downloads page
+  (<https://www.livoxtech.com/mid-360/downloads>) currently offers
+  **v13.18.0244 (2025-04-11)**, flashed with Livox Viewer 2 over the same
+  Ethernet link — nothing in this repo touches it. Write the version the
+  aircraft actually runs into `config/px4/README.md` with the other
+  hardware-side settings.
+- **Expect nothing on the ground.** `flight_level_filter` has a hard floor
+  1.5 m above the launch elevation, so at rest on the pad it is *supposed* to
+  pass almost no returns through to the costmap. Lift the sensor or set
+  `min_absolute_z:=0.0` before concluding it is broken.
+
+### How it was verified
+
+**The image rebuilds** with the `Livox-SDK2` layer, which compiles and installs
+`liblivox_lidar_sdk_shared.so` into `/usr/local/lib`.
+
+**The workspace builds: 7 packages, 0 failures.** `livox_ros_driver2` compiles
+in 30 s under a plain `colcon build` with no `DISTRO_ROS` flag, which is what
+the CMakeLists patch exists to make true — it logs
+`DISTRO_ROS not set, using ROS_DISTRO='jazzy'` and takes the Jazzy typesupport
+path. `apr` resolves. Its only stderr is upstream's own PCL policy warnings.
+
+**The launch file starts and the transform is right.** Started with no sensor
+attached:
+
+```
+[livox_mid360]: Livox Ros Driver2 Version: 1.2.7
+[livox_mid360]: Config file : .../vision_landing/config/livox/MID360_config.json
+config lidar type: 8
+successfully parse base config, counts: 1
+[base_link_to_livox]: from 'base_link' to 'livox_frame'
+```
+
+`tf2_echo base_link livox_frame` returns translation `(0, 0, -0.150)` and
+identity rotation, as intended.
+
+**And it found a documentation bug in this very entry.** With no sensor and no
+`192.168.1.5` on the machine, the driver fails *loudly* —
+
+```
+bind failed
+Failed to init livox lidar sdk.
+[ERROR] [livox_mid360]: Init lds lidar fail!
+```
+
+— but **does not exit**. It stays in `ros2 node list` looking perfectly healthy
+and creates no topics at all. The first draft of this entry and both READMEs
+said a wrong IP fails "silently"; it does not, and the corrected text is above.
+A wrong *sensor* IP, with a valid host IP, binds successfully and is expected to
+be the quiet one — untested, because there is no sensor to point it at.
+
+**No point has ever arrived on `/livox/points` from this driver.** The SDK never
+initialised, so the node never created its publishers — which means the one
+thing this smoke test could *not* check is the message type and the remap. That
+`xfer_format: 0` yields `PointCloud2` on `livox/lidar` comes from reading
+`lddc.cpp` (`CreatePublisher` and `InitPointcloud2MsgHeader`), not from
+watching a topic. The costmap has still never been filled by anything but the
+simulator.
+
+This entry makes the software ready for the sensor. It does not demonstrate the
+sensor working.
+
+### Risks still open
+
+- **Point volume is untested and is the likeliest surprise.** The simulated
+  bridge delivers 500–700 returns per scan. A Mid-360 delivers **200,000 points
+  per second** — around 20,000 per message at 10 Hz, roughly thirty times as
+  many. `flight_level_filter` and `cloud_to_scan` are C++ and should cope;
+  **`slam_3d_node` is Python and measured at ~25% of a core on simulated
+  clouds, so it probably will not.** Treat `slam_3d:=true` as a diagnostic to
+  switch on deliberately, and watch Nav2's raytracing cost on the Jetson before
+  trusting the 12 m clearing range.
+- The two IP addresses are placeholders and the mount transform is from a
+  simulation model.
+- `/livox/imu` is published and nothing consumes it. The Mid-360's IMU is a
+  real asset for the estimator; wiring it in is a separate decision, not an
+  oversight to fix quietly.
+- Everything else on the blocking list is unchanged: the winch bench test, the
+  gimbal sweep, the ZED calibration, the PX4 parameter set — and the rewritten
+  delivery sequence still has not flown.
+
+---
+
+## 2026-09-02 (overnight) — Twelve review findings fixed, five in the mission state machine
+
+**In one sentence:** a full review of the flight-readiness branch turned up
+twelve real defects — including one that would have flown the package home
+still on the hook — and all twelve are fixed.
+
+### What changed
+
+**The winch sequence no longer finishes before it starts.**
+`mission_controller.cpp`'s DELIVER state drove the whole drop off
+`/arc/winch/state`. That topic is *latched*, so on the tick after `"lower"` was
+commanded it still read the preflight value `"stowed"` — which was also the
+completion condition. The mission would set `delivered_`, transition to RETURN,
+and fly home with the package on the hook and the spool paying out. A
+`winch_bridge` restart mid-delivery re-armed the same trap, because its
+constructor republishes `"stowed"`.
+
+DELIVER now tracks its own phase (`WinchPhase::NOT_STARTED → LOWERING →
+RELEASING → RETRACTING`) and consults the winch's reported state only for the
+exit condition of the phase it is actually in. A phase is never re-entered, so
+each command is also sent exactly once — previously `"release"` went out every
+50 ms while waiting for the state to come back, and each one restarted
+`WinchBridge::start()`, pushing the phase end further out every time.
+
+**DELIVER has a deadline.** It was the one active state without one. A winch
+that stops answering — `winch_bridge` dies, or reports `retract_failed` — used
+to leave the aircraft in an unbounded hover over a customer's address until the
+battery failsafe put it down wherever it happened to be. New
+`deliver_timeout_sec` (default 120 s) covers the whole state. `retract_failed`
+and `aborted` are now acted on immediately rather than waited out.
+
+**Per-leg guard state is cleared in one place.** Every guard inside
+`fly_guided_leg` is scoped to one leg, but it was being reset at individual call
+sites, and two were missed:
+
+- `best_dist_` / `best_dist_at_` survived a legitimate 126 s SEARCH into
+  GOTO_TAG. The no-progress watchdog was then already expired — judged against
+  a best distance from the *previous* leg — so the first tick of the new leg
+  called `enter_failsafe_land("no_progress")` and the aircraft landed
+  immediately after finding its tag.
+- `blocked_since_` survived a TRANSIT that ended while holding (the arrival
+  check runs before `fly_guided_leg`). The next leg's first hold read as
+  "already blocked for 10 s" and commanded a 5 m escape climb on its first
+  tick. On the run-in to the landing pad, that breaks the descent approach.
+
+All of it now resets in `transition()`, which is the only way a leg can change.
+
+**A start request is no longer thrown away before preflight runs.** The IDLE
+state cleared `start_requested_` *before* calling `preflight_ok()`. An operator
+who published a start a second too early — before the EKF called the position
+valid, or before the latched `/arc/winch/state` arrived — got one throttled
+warning and then permanent silence, because `preflight_ok()` is only reached
+via the flag that had just been cleared. The request is now held until preflight
+passes, and expires after `start_request_valid_sec` (default 60 s) so an
+abandoned request cannot arm the aircraft minutes later.
+
+**Obstacle checks no longer fail open past the edge of the map.** The global
+costmap is a fixed 900 × 900 m square centred on the pad, while `max_range_m`
+defaults to 2000 m. A delivery accepted at, say, 700 m was inside the range
+fence and outside the map — and `cost_at()` returns −1 for "off the map" exactly
+as it does for "unknown", which is deliberately *not* treated as an obstacle.
+So `point_blocked`, `segment_blocked` and `path_ahead_clear` all silently
+returned "clear" while `costmap_fresh()` kept passing, and the documented "never
+fly into a detected obstacle" guarantee was gone with nothing logged.
+
+New `costmap_covers()` distinguishes off-map from unknown. Preflight now refuses
+a delivery point outside the mapped area (naming the map size and origin), and
+`fly_guided_leg` refuses a step that would leave it.
+
+**A TF dropout no longer marks the ground under the aircraft.**
+`flight_level_filter` republished the raw, unfiltered cloud when
+`lookupTransform` failed, on the reasoning that an empty cloud reads as "all
+clear". That reasoning does not survive how the topic is wired: it is the
+costmap's *marking-only* source (`livox_mark`), so silence leaves existing marks
+standing and clearing continues from the raw cloud — while passthrough sends
+every ground return straight to a marking source, turning the aircraft's own
+cell lethal and reproducing the exact deadlock the node was written to prevent.
+`passthrough_without_tf` now defaults to **false**, and both branches log loudly.
+
+**Smaller fixes.**
+
+- `costmap_to_cloud` sized its output to the whole grid before filtering — a
+  ~52 MB allocate-and-zero every second on the 1800 × 1800 costmap, discarded
+  on the next line. It now counts first and allocates exactly what it needs.
+  `delivery.launch.py` also starts it under the same `rviz` condition as the
+  RViz windows; it is a display aid and nothing in the flight path reads
+  `/arc/costmap_cloud`.
+- `flight_level_filter` was using `std::memcpy`, `std::vector` and `std::array`
+  without including `<cstring>`, `<vector>` or `<array>`; it compiled only
+  through transitive includes from `rclcpp`.
+- `payload_bridge.cpp` was in the tree but in no build target and no launch
+  file, so `/arc/payload/command` had no subscriber anywhere. It is superseded
+  by `winch_bridge`, which drives the same hook servo — building both would put
+  two nodes on one PX4 actuator set (both default to index 1). It is now
+  documented as not-built in `CMakeLists.txt` alongside the other superseded
+  prototypes, its unused `travel_time_sec` parameter is gone, and its header no
+  longer describes a `require_release_confirm` parameter that never existed.
+- `processes.py` had a hardcoded absolute path to one developer's home
+  directory. It now takes `PX4_DIR` from the environment, else resolves
+  `PX4-Autopilot` relative to its own location, else `~/PX4-Autopilot`.
+- `arc_landing/landing_fsm_node.py`'s DESCEND branch checked `tag_visible` but
+  not `tag_pose_body`, so a `target_visible` arriving before the first pose
+  killed the timer callback with an `AttributeError`. It now guards both, as
+  APPROACH already did. (This package is `COLCON_IGNORE`d and deprecated.)
+
+### Why
+
+The branch had nine commits of new flight logic on it and had never been read
+end to end. Five of the twelve findings were in `mission_controller.cpp`, and
+four of those five were the same class of bug: state that belongs to one leg or
+one phase, not reset at the boundary. That is worth naming, because it is the
+shape the next one will take too.
+
+Two would have ruined a flight outright — the package flown home on the hook,
+and the instant failsafe land after a long search. Two more were silent: the
+obstacle checks passing "clear" beyond 450 m, and a start request vanishing
+into nothing. Silent failures are the expensive kind on an aircraft, because
+the first evidence is the outcome.
+
+### Hardware impact
+
+**None to wire, one thing to know.** `deliver_timeout_sec` (120 s) now bounds
+the whole delivery hover, so the bench-measured winch timings must fit inside
+it: `lower_sec` + `release_sec` + `retract_sec` plus the settle and the descent.
+The current defaults total 28 s of winch, so there is generous margin — but if
+the real winch turns out much slower than the bench estimate, raise the timeout
+rather than discovering it as a failsafe over a customer's address.
+
+Also: if a delivery is planned beyond ~450 m from the pad, the global costmap
+in `nav2_params.yaml` must be widened first. Preflight will now refuse the
+flight and say so rather than flying it unguarded.
+
+### How it was verified
+
+`vision_landing` builds clean under `colcon build --cmake-args
+-DCMAKE_BUILD_TYPE=Release` in the `arc-drone:jazzy` container. Its unit tests
+pass: 18 tests, 0 failures — though those cover `mission_math.hpp`, which this
+change does not touch. The three Python files byte-compile, and `processes.py`'s
+new resolver was checked to land on the repo's own `PX4-Autopilot`.
+
+**Not flown.** None of this has been through SITL yet, and the DELIVER rewrite
+in particular deserves a full delivery run before it is trusted — it is the
+state that handles the package. The costmap-coverage preflight gate also means
+a delivery mission will now wait for Nav2's costmap before arming, which
+changes the start-up timing of the runbook sequence.
+
+### Risks still open
+
+- The DELIVER phase machine, the deliver timeout, the `retract_failed` path and
+  the `aborted` path have all never run. `SECURE_PAYLOAD`, which two of them
+  now enter, still has never run either.
+- The new preflight costmap gate has never been exercised. If Nav2 is slow to
+  publish its first costmap, the mission will sit in IDLE logging why — and
+  with a 60 s request expiry, a start published too early will now need to be
+  published again.
+- `flight_level_filter` publishing nothing on a TF dropout is the right default
+  by argument, not by measurement. Nobody has watched what the costmap does
+  through an actual TF gap in flight.
+- Everything on the blocking list is unchanged: the Livox driver, the winch
+  bench test, the gimbal sweep, the ZED calibration, and the PX4 parameter set.
+
+---
 
 ## 2026-09-02 (late night) — The mid-air disarm risk is gone
 

@@ -17,6 +17,9 @@ find_package(nav2_msgs REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(apriltag REQUIRED)
+# For livox_pc2_to_custom's output message. This is the vendored driver package
+# in this same workspace, not an apt package.
+find_package(livox_ros_driver2 REQUIRED)
 
 # `include`, not `include/vision_landing`: headers are included as
 # <vision_landing/foo.hpp> so the package name stays in the include path and
@@ -33,6 +36,14 @@ include_directories(include)
 # (fx=fy=525, cy=240) are wrong for the 640x360 hfov=2.0 sim camera, whose
 # true values are fx=fy=205.5, cy=180 — a 2.56x focal error that corrupts
 # every range estimate.
+#
+# src/payload_bridge.cpp is NOT built either. It is superseded by
+# winch_bridge: this aircraft does not drop from a hook on a servo, it lowers
+# on a winch, and winch_bridge's release_actuator_index already drives that
+# same hook servo. Building both would put two nodes on one PX4 actuator set
+# (both default to index 1) fighting over its position, and nothing publishes
+# /arc/payload/command — mission_controller speaks /arc/winch/command.
+# Kept on disk as the reference for the simple servo-release airframe.
 #
 # src/landing_controller.cpp and src/pose_estimator.cpp are NOT built.
 # Both are superseded prototypes and are unsafe to run alongside the mission
@@ -71,6 +82,26 @@ ament_target_dependencies(winch_bridge rclcpp px4_msgs std_msgs)
 add_executable(vio_node src/vio_node.cpp)
 ament_target_dependencies(vio_node rclcpp sensor_msgs px4_msgs cv_bridge OpenCV)
 
+# --- FAST-LIO2 support ------------------------------------------------------
+# The three nodes that let FAST-LIO2 run against this stack's topics without
+# any of them sitting in the flight-critical obstacle path. See each file's
+# header, and DD_Nav_WS/dd_gazebo_ws/src/fast_lio/VENDORED.md.
+
+# Branches /livox/points into the CustomMsg FAST-LIO reads. Deliberately a
+# branch and not a replacement: the costmap's cloud never passes through it.
+add_executable(livox_pc2_to_custom src/livox_pc2_to_custom.cpp)
+ament_target_dependencies(livox_pc2_to_custom rclcpp sensor_msgs livox_ros_driver2)
+
+# PX4's IMU as a sensor_msgs/Imu, FRD->FLU. This is the SITL IMU source; on the
+# aircraft FAST-LIO should use the Mid-360's own /livox/imu instead.
+add_executable(px4_imu_bridge src/px4_imu_bridge.cpp)
+ament_target_dependencies(px4_imu_bridge rclcpp sensor_msgs px4_msgs)
+
+# FAST-LIO's solution -> a slew-limited map->odom correction, or, by default,
+# just a measurement of how large that correction would have been.
+add_executable(lio_odom_bridge src/lio_odom_bridge.cpp)
+ament_target_dependencies(lio_odom_bridge rclcpp nav_msgs sensor_msgs geometry_msgs std_msgs tf2 tf2_ros)
+
 install(TARGETS
   mission_controller
   gimbal_bridge
@@ -80,6 +111,9 @@ install(TARGETS
   cloud_to_scan
   flight_level_filter
   vio_node
+  livox_pc2_to_custom
+  px4_imu_bridge
+  lio_odom_bridge
   DESTINATION lib/${PROJECT_NAME}
 )
 

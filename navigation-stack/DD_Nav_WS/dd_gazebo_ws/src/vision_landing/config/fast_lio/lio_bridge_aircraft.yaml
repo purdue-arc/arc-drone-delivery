@@ -1,0 +1,35 @@
+# lio_odom_bridge, aircraft.
+#
+# Paired with mid360_aircraft.yaml — the two must describe the same IMU. There
+# is one launch argument (`lio_config`) and this file is selected from it,
+# rather than being a second knob that can silently disagree with the first.
+lio_odom_bridge:
+  ros__parameters:
+    # base_link expressed in FAST-LIO's body frame, which on the aircraft is
+    # the Mid-360's internal IMU. Two offsets stacked:
+    #
+    #   base_link -> livox_frame   (0, 0, -0.15), the mount, from
+    #                              livox_mid360.launch.py
+    #   livox_frame -> IMU         (0.011, 0.02329, -0.04412), the datasheet
+    #                              offset inside the sensor
+    #
+    # so the IMU sits at (0.011, 0.02329, -0.19412) in base_link, and this is
+    # the inverse of that. Rotation is assumed identity, which holds only
+    # while the mount_roll/pitch/yaw in livox_mid360.launch.py are all zero.
+    #
+    # THE 0.15 HAS NEVER BEEN MEASURED ON THE REAL AIRCRAFT. It comes from
+    # sim/models/typhoon_h480.sdf. Measure the mount during bench bring-up and
+    # update this together with mount_z and mid360_sitl.yaml's extrinsic_T —
+    # they are three copies of one number, and a wrong value here biases every
+    # correction rather than failing.
+    lio_body_to_base_link: [-0.011, -0.02329, 0.19412]
+
+    # See the node header for what each of these is protecting against.
+    max_slew_m_s: 0.25
+    max_slew_deg_s: 2.0
+    max_step_m: 1.0
+    max_step_deg: 5.0
+    max_correction_m: 20.0
+    lio_timeout_sec: 1.0
+    publish_rate_hz: 20.0
+    tf_timeout_sec: 0.05
