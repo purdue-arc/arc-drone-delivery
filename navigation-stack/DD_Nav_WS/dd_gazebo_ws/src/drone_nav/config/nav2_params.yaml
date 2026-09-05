@@ -1,0 +1,459 @@
+bt_navigator:
+  ros__parameters:
+    use_sim_time: false
+    global_frame: map
+    robot_base_frame: base_link
+    transform_tolerance: 0.1
+    default_nav_to_pose_bt_xml: $(find-pkg-share my_package)/behavior_tree/navigation_bt.xml
+    always_reload_bt_xml: false
+    goal_blackboard_id: goal
+    path_blackboard_id: path
+    navigators: ['navigate_to_pose']
+    navigate_to_pose:
+      plugin: "nav2_bt_navigator::NavigateToPoseNavigator" 
+    plugin_lib_names:
+      - nav2_compute_path_to_pose_action_bt_node
+      - nav2_follow_path_action_bt_node
+      - nav2_back_up_action_bt_node
+      - nav2_spin_action_bt_node
+      - nav2_wait_action_bt_node
+      - nav2_clear_costmap_service_bt_node
+      - nav2_is_stuck_condition_bt_node
+      - nav2_goal_reached_condition_bt_node
+      - nav2_initial_pose_received_condition_bt_node
+      - nav2_goal_updated_condition_bt_node
+      - nav2_reinitialize_global_localization_service_bt_node
+      - nav2_rate_controller_bt_node
+      - nav2_distance_controller_bt_node
+      - nav2_speed_controller_bt_node
+      - nav2_recovery_node_bt_node
+      - nav2_pipeline_sequence_bt_node
+      - nav2_round_robin_node_bt_node
+      - nav2_transform_available_condition_bt_node
+      - nav2_time_expired_condition_bt_node
+      - nav2_distance_traveled_condition_bt_node
+      - nav2_single_trigger_bt_node
+    error_code_names:
+      - compute_path_error_code
+      - follow_path_error_code
+      # - smoother_error_code, navigate_to_pose_error_code, navigate_through_poses_error_code, etc
+
+bt_navigator_rclcpp_node:
+  ros__parameters:
+    use_sim_time: false
+
+controller_server:
+  ros__parameters:
+    use_sim_time: false
+    controller_frequency: 20.0
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.5
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    odom_topic: "/odometry/filtered"
+    progress_checker_plugin: "progress_checker"
+    goal_checker_plugins: ["goal_checker"]
+    controller_plugins: ["FollowPath"]
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.5
+      movement_time_allowance: 10.0
+    goal_checker:
+      stateful: True
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.25
+      stateful: True
+    FollowPath:
+      plugin: "nav2_mppi_controller::MPPIController"
+      time_steps: 56
+      model_dt: 0.05
+      batch_size: 2000
+      vx_std: 0.2
+      vy_std: 0.2
+      wz_std: 0.4
+      vx_max: 0.5
+      vx_min: -0.35
+      vy_max: 0.5
+      wz_max: 1.9
+      ax_max: 3.0
+      ax_min: -3.0
+      ay_max: 3.0
+      az_max: 3.5
+      iteration_count: 1
+      prune_distance: 2.0
+      transform_tolerance: 0.1
+      temperature: 0.3
+      gamma: 0.015
+      motion_model: "Omni"
+      visualize: false
+      reset_period: 1.0 # (only in Humble)
+      regenerate_noises: false
+      TrajectoryVisualizer:
+        trajectory_step: 5
+        time_step: 3
+      critics: ["ConstraintCritic", "ObstacleCritic", "CostCritic", "GoalCritic", "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 1.4
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.0
+        threshold_to_consider: 0.5
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 0.5
+      ObstaclesCritic:
+        enabled: true
+        cost_power: 1
+        repulsion_weight: 1.5
+        critical_weight: 20.0
+        consider_footprint: false
+        collision_cost: 10000.0
+        collision_margin_distance: 0.1
+        near_goal_distance: 0.5
+        inflation_radius: 0.65 # (only in Humble)
+        cost_scaling_factor: 10.0 # (only in Humble)
+      CostCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.81
+        critical_cost: 300.0
+        consider_footprint: true
+        collision_cost: 1000000.0
+        near_goal_distance: 1.0
+        trajectory_point_step: 2
+      PathAlignCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 14.0
+        max_path_occupancy_ratio: 0.05
+        trajectory_point_step: 4
+        threshold_to_consider: 0.5
+        offset_from_furthest: 20
+        use_path_orientations: false
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        offset_from_furthest: 5
+        threshold_to_consider: 1.4
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 2.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.5
+        max_angle_to_furthest: 1.0
+        mode: 0
+      # VelocityDeadbandCritic:
+      #   enabled: true
+      #   cost_power: 1
+      #   cost_weight: 35.0
+      #   deadband_velocities: [0.05, 0.05, 0.05]
+      # TwirlingCritic:
+      #   enabled: true
+      #   twirling_cost_power: 1
+      #   twirling_cost_weight: 10.0
+      
+controller_server_rclcpp_node:
+  ros__parameters:
+    use_sim_time: false
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: odom
+      robot_base_frame: base_link
+      use_sim_time: false
+      rolling_window: true
+      width: 6
+      height: 6
+      resolution: 0.05
+      robot_radius: 0.6
+      # Obstacle source is the 360-degree lidar on /scan, bridged from Gazebo
+      # by gazebo_scan_bridge (and, on the aircraft, published by the real
+      # lidar driver). This replaces a spatio_temporal_voxel_layer config that
+      # read /intel_realsense_r200_depth/points: that plugin is a separate
+      # package which is not installed, and the RealSense topic does not exist
+      # on this airframe.
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        # LAYER-level gate, separate from the per-source one below. It defaults
+        # to 2.0 m and silently drops every point above that, so it must be set
+        # even though the real filtering is now upstream in
+        # flight_level_filter. Wide open for the same reason as below.
+        max_obstacle_height: 100.0
+        # TWO sources, because marking and clearing must not use the same data.
+        #
+        # MARKING uses the flight-level cloud: only returns near the aircraft's
+        # own altitude may create an obstacle, so a low roof it will fly over
+        # never becomes one.
+        #
+        # CLEARING uses the RAW cloud: anything the lidar can see, at any
+        # height, may erase a cell it raytraces through.
+        #
+        # Using the filtered cloud for both deadlocks the aircraft. Measured:
+        # it correctly refused to fly into a 20 m building, climbed to 39 m to
+        # get above it — and stayed blocked, because at 39 m the building is
+        # outside the flight-level band, so there were no returns left to
+        # raytrace through the cells that were already marked. It sat there
+        # until the leg timed out. Climbing removed the marks' evidence and the
+        # means of erasing them at the same time.
+        observation_sources: livox_mark livox_clear
+        livox_mark:
+          topic: /livox/points_flight_level
+          marking: true
+          clearing: false
+          data_type: "PointCloud2"
+          obstacle_max_range: 30.0
+          obstacle_min_range: 0.5
+          raytrace_max_range: 35.0
+          raytrace_min_range: 0.5
+          # Wide open ON PURPOSE. Height filtering has moved upstream into
+          # flight_level_filter, which cuts the band relative to the
+          # AIRCRAFT rather than to the ground. Re-applying a fixed 2..40 m
+          # window here would put the old altitude-blind behaviour straight
+          # back on top of it.
+          min_obstacle_height: -100.0
+          max_obstacle_height: 100.0
+          # The bridge emits inf for "no return"; treat it as free space to
+          # raytrace through, not as an obstacle at max range.
+          inf_is_valid: true
+          # 0.0 disables the staleness check. The bridge runs ~10 Hz but the
+          # cross-distro link measures ~6-7 Hz, and a tighter expectation
+          # makes Nav2 spam "sensor data is stale" and refuse to plan.
+          expected_update_rate: 0.0
+        livox_clear:
+          # Raw lidar, clearing only. This is what lets the aircraft climb
+          # above an obstacle and have the map agree that it is now clear.
+          topic: /livox/points
+          data_type: "PointCloud2"
+          marking: false
+          clearing: true
+          obstacle_max_range: 30.0
+          obstacle_min_range: 0.5
+          # SHORT clearing range, deliberately. At 35 m every scan raytraced
+          # far past the aircraft and erased the map ahead of and behind it —
+          # the operator saw the occupancy grid dissolve as the aircraft flew,
+          # and obstacles seen on the way out were gone by the return.
+          #
+          # 12 m is enough to clear a stale mark the aircraft is sitting on or
+          # about to enter, which is the only thing clearing is needed for
+          # here, while leaving the wider map to accumulate.
+          raytrace_max_range: 12.0
+          raytrace_min_range: 0.5
+          min_obstacle_height: -100.0
+          max_obstacle_height: 100.0
+          inf_is_valid: true
+          expected_update_rate: 0.0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.65
+      static_layer:
+        map_subscribe_transient_local: True
+      always_send_full_costmap: True
+  local_costmap_client:
+    ros__parameters:
+      use_sim_time: false
+  local_costmap_rclcpp_node:
+    ros__parameters:
+      use_sim_time: false
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      global_frame: map
+      robot_base_frame: base_link
+      use_sim_time: false
+      robot_radius: 0.6
+      # PERSISTENT, not rolling. This is the map of the whole delivery area and
+      # it must not forget.
+      #
+      # As a 120 m rolling window it followed the aircraft and discarded every
+      # cell more than 60 m behind it, so on a 392 m mission the map was being
+      # thrown away continuously: obstacles seen on the way out had vanished by
+      # the time the aircraft came back past them, and the operator watching
+      # RViz saw the occupancy grid dissolve behind the aircraft.
+      #
+      # Fixed and centred on the pad instead, covering 900 x 900 m — enough for
+      # a delivery anywhere inside a 450 m radius, which is well beyond the
+      # companion-side range fence. At 0.5 m that is 1800 x 1800 cells; at the
+      # old 0.2 m it would have been 4500 x 4500 and 20 M cells per layer,
+      # which is not worth it when the airframe radius is 0.6 m.
+      rolling_window: false
+      width: 900
+      height: 900
+      resolution: 0.5
+      # Origin at the corner, so the map is centred on the pad at (0, 0).
+      origin_x: -450.0
+      origin_y: -450.0
+      track_unknown_space: false
+      # No static_layer: there is no pre-built map server for the delivery
+      # area, and with track_unknown_space the planner treats unobserved cells
+      # as unknown rather than free. Obstacles come from the live lidar.
+      plugins: ["obstacle_layer", "inflation_layer"]
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        # LAYER-level gate, separate from the per-source one below. It defaults
+        # to 2.0 m and silently drops every point above that, so it must be set
+        # even though the real filtering is now upstream in
+        # flight_level_filter. Wide open for the same reason as below.
+        max_obstacle_height: 100.0
+        # TWO sources, because marking and clearing must not use the same data.
+        #
+        # MARKING uses the flight-level cloud: only returns near the aircraft's
+        # own altitude may create an obstacle, so a low roof it will fly over
+        # never becomes one.
+        #
+        # CLEARING uses the RAW cloud: anything the lidar can see, at any
+        # height, may erase a cell it raytraces through.
+        #
+        # Using the filtered cloud for both deadlocks the aircraft. Measured:
+        # it correctly refused to fly into a 20 m building, climbed to 39 m to
+        # get above it — and stayed blocked, because at 39 m the building is
+        # outside the flight-level band, so there were no returns left to
+        # raytrace through the cells that were already marked. It sat there
+        # until the leg timed out. Climbing removed the marks' evidence and the
+        # means of erasing them at the same time.
+        observation_sources: livox_mark livox_clear
+        livox_mark:
+          topic: /livox/points_flight_level
+          marking: true
+          clearing: false
+          data_type: "PointCloud2"
+          obstacle_max_range: 30.0
+          obstacle_min_range: 0.5
+          raytrace_max_range: 35.0
+          raytrace_min_range: 0.5
+          # Wide open ON PURPOSE. Height filtering has moved upstream into
+          # flight_level_filter, which cuts the band relative to the
+          # AIRCRAFT rather than to the ground. Re-applying a fixed 2..40 m
+          # window here would put the old altitude-blind behaviour straight
+          # back on top of it.
+          min_obstacle_height: -100.0
+          max_obstacle_height: 100.0
+          inf_is_valid: true
+          expected_update_rate: 0.0
+        livox_clear:
+          # Raw lidar, clearing only. This is what lets the aircraft climb
+          # above an obstacle and have the map agree that it is now clear.
+          topic: /livox/points
+          data_type: "PointCloud2"
+          marking: false
+          clearing: true
+          obstacle_max_range: 30.0
+          obstacle_min_range: 0.5
+          # SHORT clearing range, deliberately. At 35 m every scan raytraced
+          # far past the aircraft and erased the map ahead of and behind it —
+          # the operator saw the occupancy grid dissolve as the aircraft flew,
+          # and obstacles seen on the way out were gone by the return.
+          #
+          # 12 m is enough to clear a stale mark the aircraft is sitting on or
+          # about to enter, which is the only thing clearing is needed for
+          # here, while leaving the wider map to accumulate.
+          raytrace_max_range: 12.0
+          raytrace_min_range: 0.5
+          min_obstacle_height: -100.0
+          max_obstacle_height: 100.0
+          inf_is_valid: true
+          expected_update_rate: 0.0
+      unused_static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.65
+      always_send_full_costmap: True
+  global_costmap_client:
+    ros__parameters:
+      use_sim_time: false
+  global_costmap_rclcpp_node:
+    ros__parameters:
+      use_sim_time: false
+
+map_server:
+  ros__parameters:
+    use_sim_time: false
+    yaml_filename: "turtlebot3_world.yaml"
+
+map_saver:
+  ros__parameters:
+    use_sim_time: false
+    save_map_timeout: 5.0
+    free_thresh_default: 0.25
+    occupied_thresh_default: 0.65
+    map_subscribe_transient_local: True
+
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 20.0
+    use_sim_time: false
+    planner_plugins: ["GridBased", "GridOptimized"]
+    GridBased:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      use_astar: True
+      allow_unknown: True
+      tolerance: 1.0
+    GridOptimized:
+      plugin: "nav2_theta_star_planner::ThetaStarPlanner"
+      how_many_corners: 8
+      allow_unknown: True
+      w_euc_cost: 1.0
+      w_traversal_cost: 2.0
+      w_heuristic_cost: 1.0
+
+planner_server_rclcpp_node:
+  ros__parameters:
+    use_sim_time: false
+
+recoveries_server:
+  ros__parameters:
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
+    cycle_frequency: 10.0
+    recovery_plugins: ["backup", "wait"]
+    backup:
+      plugin: "nav2_behaviors::BackUp"
+    wait:
+      plugin: "nav2_behaviors::Wait"
+    global_frame: odom
+    robot_base_frame: base_link
+    transform_timeout: 0.1
+    use_sim_time: false
+    simulate_ahead_time: 2.0
+    max_rotational_vel: 1.0
+    min_rotational_vel: 0.4
+    rotational_acc_lim: 3.2
+
+robot_state_publisher:
+  ros__parameters:
+    use_sim_time: false
+
+waypoint_follower:
+  ros__parameters:
+    loop_rate: 20
+    stop_on_failure: false
+    waypoint_task_executor_plugin: "wait_at_waypoint"   
+    wait_at_waypoint:
+      plugin: "nav2_waypoint_follower::WaitAtWaypoint"
+      enabled: True
+      waypoint_pause_duration: 200

@@ -1,0 +1,9 @@
+  <footer class="site-foot">
+    Built {{ built_at }}
+    {% if here == 'stack' %}from <code>docs-site/data/stack.yaml</code>
+    {% elif here == 'readiness' %}from <code>CHANGELOG.md</code> and <code>docs-site/data/readiness.yaml</code>
+    {% else %}from <code>CHANGELOG.md</code>
+    {% endif %}
+    &mdash; regenerates automatically on every push. Source of truth for anything on this page: the repo itself.
+  </footer>
+</div>

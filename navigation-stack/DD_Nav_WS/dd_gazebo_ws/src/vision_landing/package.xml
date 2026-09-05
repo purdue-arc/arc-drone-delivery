@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>vision_landing</name>
+  <version>0.0.1</version>
+  <description>AprilTag precision landing pipeline</description>
+  <maintainer email="arc@purdue.edu">ARC</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>image_transport</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2</depend>
+  <depend>vision_msgs</depend>
+  <depend>px4_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>apriltag</depend>
+  <depend>nav_msgs</depend>
+  <depend>nav2_msgs</depend>
+  <depend>rclcpp_action</depend>
+  <!-- CustomMsg, for the cloud branch that feeds FAST-LIO2. -->
+  <depend>livox_ros_driver2</depend>
+
+  <!-- Perception node launched by landing_pipeline.launch.py -->
+  <exec_depend>zed_apriltag_streaming</exec_depend>
+  <!-- fast_lio.launch.py starts the estimator itself. -->
+  <exec_depend>fast_lio</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <!-- Without this colcon treats the package as catkin (ROS 1): it exports
+       ROS_PACKAGE_PATH instead of AMENT_PREFIX_PATH, and `ros2 run
+       vision_landing ...` fails with "Package not found". -->
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

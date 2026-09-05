@@ -1,0 +1,103 @@
+# FAST-LIO2 on the aircraft: Livox Mid-360 + the Mid-360's own IMU.
+#
+# Derived from fast_lio's config/mid360.yaml. Every value that differs from
+# upstream is marked ARC and says why. Do not replace this file with upstream's
+# on a version bump — diff it.
+#
+# The IMU here is the Mid-360's internal one, NOT PX4's. It shares the sensor's
+# clock and its offset from the laser is a datasheet constant, which is the
+# arrangement FAST-LIO assumes. px4_imu_bridge exists for SITL, where there is
+# no such sensor; see mid360_sitl.yaml.
+
+/**:
+    ros__parameters:
+        feature_extract_enable: false
+        point_filter_num: 3
+        max_iteration: 3
+        filter_size_surf: 0.5
+        filter_size_map: 0.5
+        cube_side_length: 1000.0
+        runtime_pos_log_enable: false
+        map_file_path: "./test.pcd"
+
+        common:
+            # ARC: the CustomMsg branch published by livox_pc2_to_custom, not
+            # the driver's own topic. /livox/points stays PointCloud2 so the
+            # Nav2 costmap's obstacle source is unchanged — see that node's
+            # header for why the conversion runs in this direction.
+            lid_topic:  "/livox/lidar_custom"
+            imu_topic:  "/livox/imu"
+            time_sync_en: false
+            time_offset_lidar_to_imu: 0.0
+
+        preprocess:
+            lidar_type: 1                # Livox CustomMsg
+            scan_line:  4
+            # ARC: 0.5 m, matching gazebo_scan_bridge's min_range, so both
+            # worlds discard returns off the airframe itself at the same
+            # radius. Upstream is also 0.5; kept explicit because the number
+            # is shared with another file.
+            blind: 0.5
+            timestamp_unit: 3            # nanoseconds, which is what CustomPoint.offset_time is
+            scan_rate: 10
+
+        mapping:
+            acc_cov: 0.1
+            gyr_cov: 0.1
+            b_acc_cov: 0.0001
+            b_gyr_cov: 0.0001
+            fov_degree:    360.0
+            det_range:     100.0
+            # ARC: false, upstream true. The Mid-360's IMU-to-laser extrinsic
+            # is a factory constant, so there is nothing to solve for — and
+            # solving for it anyway adds six weakly-observable states in
+            # exactly the flight regime where observability is already the
+            # problem. At 15 m over open lawn the only returns are a flat
+            # ground plane, which pins roll, pitch and height and leaves x, y
+            # and yaw on the IMU. Letting the extrinsic float there gives the
+            # filter another way to explain its own drift.
+            extrinsic_est_en:  false
+            # Laser origin expressed in the IMU frame, from the Mid-360
+            # datasheet. Same as upstream; it is a property of the sensor, not
+            # of this airframe, so it does not change with the mount.
+            extrinsic_T: [ -0.011, -0.02329, 0.04412 ]
+            extrinsic_R: [ 1., 0., 0.,
+                           0., 1., 0.,
+                           0., 0., 1.]
+
+        publish:
+            path_en: true
+            effect_map_en: false
+            # ARC: FALSE, upstream true. `map_en` does not do what the name
+            # suggests. publish_map() appends every frame into a global
+            # `pcl_wait_pub` that is NEVER cleared, then serialises and
+            # republishes the entire accumulation once a second. Over a ten
+            # minute delivery that is millions of points growing without bound
+            # in RAM and a republish that gets steadily more expensive — the
+            # same failure as pcd_save_en, wearing a different name.
+            #
+            # Nothing is lost by turning it off: /fast_lio/cloud_registered
+            # carries each registered scan, and RViz accumulates it with Decay
+            # Time, which is what config/lio.rviz does.
+            map_en: false
+            scan_publish_en:  true
+            dense_publish_en: false
+            scan_bodyframe_pub_en: true
+            # ARC: three parameters added to the vendored source. This stack
+            # allows exactly one publisher per transform link, and map->odom
+            # belongs to lio_odom_bridge, which rate limits it. FAST-LIO's own
+            # broadcast is off; its frames are renamed off "camera_init"/"body"
+            # so they cannot be mistaken for anything in the mission tree.
+            tf_en: false
+            odom_frame_id: "lio_odom"
+            body_frame_id: "lio_body"
+
+        pcd_save:
+            # ARC: FALSE, upstream true. Upstream ships pcd_save_en true with
+            # interval -1, which holds every point of the entire run in RAM to
+            # write one file at exit. On a 10 minute delivery on the companion
+            # computer that is an out-of-memory kill of the estimator, and the
+            # file is never written anyway because the node is killed rather
+            # than shut down cleanly.
+            pcd_save_en: false
+            interval: -1

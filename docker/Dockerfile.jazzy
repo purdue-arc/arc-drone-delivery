@@ -1,0 +1,153 @@
+# syntax=docker/dockerfile:1.6
+#
+# arc-drone-delivery / Dockerfile.jazzy
+# ----------------------------------------------------------------------------
+# Single base image for the arc-drone-delivery project on ROS 2 Jazzy.
+# Used by docker-compose to spawn separate containers for the Micro XRCE-DDS
+# Agent (PX4 ↔ ROS 2 bridge), AprilTag perception, and the mission
+# controller — all sharing one image (one build, several runtime processes).
+#
+# Works on:
+#   - amd64 dev machine (Ubuntu 24.04 native Jazzy planned but not required)
+#   - arm64 Jetson Orin Nano running JetPack 6.2 (Ubuntu 22.04 host)
+#
+# For Isaac ROS GPU acceleration on Jetson, add `runtime: nvidia` to
+# docker-compose.jetson.yml. The base apriltag_ros pipeline does NOT need
+# GPU passthrough; CUDA is only required when swapping to isaac_ros_apriltag.
+# ----------------------------------------------------------------------------
+
+ARG ROS_DISTRO=jazzy
+FROM ubuntu:24.04
+
+ARG ROS_DISTRO
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8 \
+    ROS_DISTRO=${ROS_DISTRO}
+
+# -----------------------------------------------------------------------------
+# System bootstrap: locales, certs, sudo, ROS apt source
+# -----------------------------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        locales \
+        curl \
+        gnupg \
+        lsb-release \
+        ca-certificates \
+        software-properties-common \
+        sudo \
+    && locale-gen en_US.UTF-8 \
+    && add-apt-repository universe -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add ROS 2 apt repo (signed)
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+        -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
+http://packages.ros.org/ros2/ubuntu noble main" \
+        > /etc/apt/sources.list.d/ros2.list
+
+# -----------------------------------------------------------------------------
+# ROS 2 + project dependencies
+# Note: ros-base, not desktop — keeps Jetson image lean. Add desktop deps
+# (rviz, rqt) in a separate Dockerfile.dev for the workstation if needed.
+# -----------------------------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ros-${ROS_DISTRO}-ros-base \
+        ros-${ROS_DISTRO}-apriltag \
+        ros-${ROS_DISTRO}-apriltag-ros \
+        ros-${ROS_DISTRO}-apriltag-msgs \
+        ros-${ROS_DISTRO}-image-transport \
+        ros-${ROS_DISTRO}-image-transport-plugins \
+        ros-${ROS_DISTRO}-cv-bridge \
+        ros-${ROS_DISTRO}-vision-msgs \
+        ros-${ROS_DISTRO}-tf2-ros \
+        ros-${ROS_DISTRO}-tf2-geometry-msgs \
+        ros-${ROS_DISTRO}-ros-gz-bridge \
+        ros-${ROS_DISTRO}-ros-gz-image \
+        ros-dev-tools \
+        ros-${ROS_DISTRO}-laser-geometry \
+        ros-${ROS_DISTRO}-pcl-conversions \
+        python3-rosdep \
+        python3-colcon-common-extensions \
+        python3-vcstool \
+        python3-pip \
+        python3-pytest \
+        git \
+        build-essential \
+        cmake \
+        libopencv-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Delivery mission stack: Nav2 global planning over an occupancy grid built
+# from the lidar, robot_localization for the odom->map chain drone_nav's
+# launch files expect, and topic_tools for its relays.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ros-${ROS_DISTRO}-navigation2 \
+        ros-${ROS_DISTRO}-nav2-bringup \
+        ros-${ROS_DISTRO}-nav2-msgs \
+        ros-${ROS_DISTRO}-robot-localization \
+        ros-${ROS_DISTRO}-topic-tools \
+        ros-${ROS_DISTRO}-slam-toolbox \
+        ros-${ROS_DISTRO}-rviz2 \
+        ros-${ROS_DISTRO}-grid-map-msgs \
+    && rm -rf /var/lib/apt/lists/*
+
+# GStreamer runtime for OpenCV VideoCapture — needed by zed_apriltag_node
+# to decode the ZED H.264 RTP stream (udpsrc → rtph264depay → avdec_h264)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        gstreamer1.0-plugins-good \
+        gstreamer1.0-plugins-bad \
+        gstreamer1.0-libav \
+        libgstreamer1.0-dev \
+        libgstreamer-plugins-base1.0-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Micro XRCE-DDS Agent — the PX4 ↔ ROS 2 bridge (replaces MAVROS).
+# Built from source: no apt package ships it for noble/jazzy.
+RUN git clone --depth 1 -b v2.4.3 https://github.com/eProsima/Micro-XRCE-DDS-Agent.git /tmp/xrce-agent \
+    && cmake -S /tmp/xrce-agent -B /tmp/xrce-agent/build -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build /tmp/xrce-agent/build -j"$(nproc)" \
+    && cmake --install /tmp/xrce-agent/build \
+    && ldconfig /usr/local/lib/ \
+    && rm -rf /tmp/xrce-agent
+
+# rosdep init must run as root, update runs as user later
+RUN rosdep init || true
+
+# -----------------------------------------------------------------------------
+# Non-root user matching host UID/GID
+# Bind-mounted files end up owned by USER_UID on the host, not root —
+# critical for editing source from your IDE without sudo chowns.
+# -----------------------------------------------------------------------------
+ARG USER_UID=1000
+ARG USER_GID=1000
+ARG USERNAME=arc
+
+RUN if getent passwd ${USER_UID} >/dev/null; then \
+        userdel -r "$(getent passwd ${USER_UID} | cut -d: -f1)" 2>/dev/null || true; \
+    fi \
+    && if getent group ${USER_GID} >/dev/null; then \
+        groupdel "$(getent group ${USER_GID} | cut -d: -f1)" 2>/dev/null || true; \
+    fi \
+    && groupadd --gid ${USER_GID} ${USERNAME} \
+    && useradd --uid ${USER_UID} --gid ${USER_GID} -m -s /bin/bash ${USERNAME} \
+    && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/${USERNAME} \
+    && chmod 0440 /etc/sudoers.d/${USERNAME} \
+    && usermod -aG dialout,video,plugdev ${USERNAME}
+
+USER ${USERNAME}
+WORKDIR /home/${USERNAME}/arc_ws
+
+# rosdep update is per-user
+RUN rosdep update --rosdistro=${ROS_DISTRO}
+
+# Auto-source ROS + workspace in any new shell (interactive or via exec)
+RUN echo "source /opt/ros/${ROS_DISTRO}/setup.bash" >> ~/.bashrc \
+    && echo "[ -f /home/${USERNAME}/arc_ws/install/setup.bash ] && source /home/${USERNAME}/arc_ws/install/setup.bash" >> ~/.bashrc
+
+# Entrypoint sources ROS, optionally builds workspace, then exec's the CMD.
+# This makes `docker compose run apriltag ros2 topic list` work directly.
+COPY --chown=${USER_UID}:${USER_GID} docker/entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["bash"]

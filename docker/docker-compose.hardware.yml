@@ -1,0 +1,189 @@
+# docker/docker-compose.hardware.yml
+# ----------------------------------------------------------------------------
+# Hardware overlay — Jetson Orin Nano on the Tarot T960 / Pixhawk over UART.
+#
+# The `mission` service from the base compose already launches perception
+# (zed_apriltag_node), the gimbal bridge, and the mission controller. This
+# overlay only re-points them at real hardware:
+#   RTP_PORT   the ZED 2i H.264 stream from the Jetson camera pipeline
+#   TAG_SIZE_M the PRINTED tag's edge length
+#   CALIB_FILE the ZED 2i intrinsics (REQUIRED — see below)
+#
+# PX4 side, uXRCE-DDS over the wired UART:
+#   uxrce_dds_client start -t serial -d /dev/ttyS2 -b 921600
+#   (set UXRCE_DDS_CFG to the matching TELEM port so it starts on boot)
+#
+# PX4 side, gimbal — the RCTimer 2-axis brushless board (BruGi firmware)
+# self-stabilises on its own IMU and takes an RC PWM tilt command:
+#   MNT_MODE_IN  = 4   (MAVLink gimbal protocol v2 — what gimbal_bridge sends)
+#   MNT_MODE_OUT = 0   (AUX: PX4 emits PWM on an AUX output)
+#   Wire that AUX output to the board's PITCH RC input, then calibrate travel
+#   with MNT_RANGE_PITCH and the AUX channel's PWM_AUX_MIN/_MAX/_DISARM so
+#   that a -90..0 deg command sweeps the gimbal from straight-down to level.
+#   Verify on the bench, props off, before flying.
+#
+# CALIB_FILE is mandatory: without intrinsics zed_apriltag_node logs
+# "pose disabled" and never publishes /landing_target_pose, so the mission
+# searches, finds nothing, and failsafe-lands. Generate it with:
+#   landing/zed_apriltag_streaming/scripts/zed_calib_to_yaml.py \
+#     --conf /usr/local/zed/settings/SN<serial>.conf \
+#     --side left --resolution HD720 -o zed2i_hd720.yaml
+# Then set CALIB_FILE to its path *inside the container*
+# (the repo is mounted at /home/arc/arc_ws).
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.hardware.yml up
+#   (or `make up-hw` from the repo root)
+# ----------------------------------------------------------------------------
+
+services:
+
+  xrce_agent:
+    command:
+      - MicroXRCEAgent
+      - serial
+      - --dev
+      - /dev/ttyTHS1
+      - -b
+      - "921600"
+    devices:
+      - /dev/ttyTHS1:/dev/ttyTHS1
+    # Pixhawk telemetry is chatty (50 Hz+); give the bridge priority headroom
+    cpus: 1.0
+
+  # --------------------------------------------------------------------------
+  # ZED 2i capture — encodes the left eye to H.264 and streams it to localhost,
+  # where zed_apriltag_node (inside the mission container) decodes it.
+  #
+  # This used to be a gst-launch line in streaming/README.md that an operator
+  # typed over a serial console, aimed at a laptop over WiFi. That is fine for
+  # watching video in VLC and unacceptable as a flight-critical input: nothing
+  # restarted it, nothing supervised it, and the aircraft's perception depended
+  # on a shell someone had left open. It is a service now, on loopback.
+  #
+  # Requires the ZED SDK's gstreamer plugins on the host (zedsrc) and
+  # `runtime: nvidia` for the Jetson's encoder — see docker/README.md.
+  # --------------------------------------------------------------------------
+  zed_capture:
+    image: arc-drone:jazzy
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.jazzy
+      args:
+        USER_UID: ${USER_UID:-1000}
+        USER_GID: ${USER_GID:-1000}
+        ROS_DISTRO: jazzy
+    network_mode: host
+    ipc: host
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      ROS_DISTRO: jazzy
+    volumes:
+      - ../:/home/arc/arc_ws:rw
+    restart: unless-stopped
+    stop_grace_period: 3s
+    container_name: arc_zed_capture
+    profiles: ["zed"]
+    devices:
+      - /dev/video0:/dev/video0
+    command:
+      - bash
+      - -lc
+      - >-
+        gst-launch-1.0 -e
+        zedsrc stream-type=0 camera-resolution=$${ZED_RESOLUTION:-3}
+        ! video/x-raw,width=$${ZED_WIDTH:-1280},height=$${ZED_HEIGHT:-720},framerate=$${ZED_FPS:-15}/1
+        ! videoconvert
+        ! x264enc tune=zerolatency speed-preset=veryfast bitrate=$${ZED_BITRATE:-4000} key-int-max=15
+        ! h264parse ! rtph264pay config-interval=1 pt=96
+        ! udpsink host=127.0.0.1 port=$${RTP_PORT:-5000} sync=false async=false
+
+  mission:
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      ROS_DISTRO: jazzy
+      ARC_REQUIRE_PKG: vision_landing
+      # The full delivery mission: Nav2 transit planning, winch bridge,
+      # transit and return. The base compose defaults to the search-and-land
+      # pipeline, which does NOT start the winch.
+      LAUNCH_FILE: ${LAUNCH_FILE:-delivery.launch.py}
+      # ZED 2i RTP stream from the zed_capture service above (NOT 5600, which
+      # is the SITL gazebo camera plugin).
+      RTP_PORT: ${RTP_PORT:-5000}
+      # Physical printed tag, in metres — the BLACK QUAD's edge, not the sheet.
+      TAG_SIZE_M: ${TAG_SIZE_M:-0.165}
+      TARGET_TAG_ID: ${TARGET_TAG_ID:-0}
+      # REQUIRED — the mission cannot see the tag without it, and
+      # zed_apriltag_node now refuses to start rather than run blind.
+      # NOTE the name: this is CALIB_FILE. docker/.env used to define
+      # ZED_CALIB_FILE, which nothing read, so the calibration silently
+      # resolved empty on every hardware run.
+      CALIB_FILE: ${CALIB_FILE:-}
+      # Delivery destination. Unset means nan, which the controller reads as
+      # "no delivery" and degrades to search-and-land at the launch point.
+      DELIVERY_LAT: ${DELIVERY_LAT:-nan}
+      DELIVERY_LON: ${DELIVERY_LON:-nan}
+      TRANSIT_HEIGHT_M: ${TRANSIT_HEIGHT_M:-15.0}
+      WINCH_HOVER_HEIGHT_M: ${WINCH_HOVER_HEIGHT_M:-12.0}
+      # Companion-side fence. Set these to the test site, and set the PX4
+      # GF_* parameters to match — see config/px4/README.md. This layer stops
+      # commanding; the PX4 layer keeps working when this computer dies.
+      MAX_ALTITUDE_M: ${MAX_ALTITUDE_M:-40.0}
+      MAX_RANGE_M: ${MAX_RANGE_M:-500.0}
+      # Refuse to fly a transit that has never had an obstacle plan.
+      REQUIRE_PLAN_TO_TRANSIT: ${REQUIRE_PLAN_TO_TRANSIT:-true}
+      # Record every hardware flight.
+      RECORD: ${RECORD:-true}
+      BAG_DIR: ${BAG_DIR:-/home/arc/arc_ws/bags/flight}
+      # PX4 topic names. Defaults match navigation-stack/PX4-Autopilot, which
+      # publishes UNVERSIONED names. If the aircraft's Pixhawk runs a release
+      # that appends _v1/_v2, override ALL FOUR here — a partial override
+      # looks exactly like a dead DDS link.
+      PX4_STATUS_TOPIC: ${PX4_STATUS_TOPIC:-/fmu/out/vehicle_status_v2}
+      PX4_LOCAL_POSITION_TOPIC: ${PX4_LOCAL_POSITION_TOPIC:-/fmu/out/vehicle_local_position_v1}
+      PX4_BATTERY_TOPIC: ${PX4_BATTERY_TOPIC:-/fmu/out/battery_status_v1}
+      PX4_LAND_DETECTED_TOPIC: ${PX4_LAND_DETECTED_TOPIC:-/fmu/out/vehicle_land_detected}
+
+  # --------------------------------------------------------------------------
+  # Livox Mid-360 — the obstacle source for Nav2's costmaps (/livox/points).
+  #
+  # Without this the global costmap stays empty, nav2_path_bridge never
+  # returns a plan, and TRANSIT would fly a blind straight line to the
+  # delivery point. The mission controller now refuses to transit in that
+  # state (require_plan_to_transit), so a missing lidar aborts the mission on
+  # the pad instead of flying it unguarded.
+  #
+  # NOT STARTED BY DEFAULT — the driver is not vendored in this repo. Clone
+  # livox_ros_driver2 into navigation-stack/DD_Nav_WS/dd_gazebo_ws/src/,
+  # rebuild (`make rebuild-ws`), point LIVOX_CONFIG at your MID360 json, then
+  # bring it up with `--profile lidar`. See docker/README.md.
+  # --------------------------------------------------------------------------
+  lidar:
+    image: arc-drone:jazzy
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.jazzy
+      args:
+        USER_UID: ${USER_UID:-1000}
+        USER_GID: ${USER_GID:-1000}
+        ROS_DISTRO: jazzy
+    network_mode: host
+    ipc: host
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      ROS_DISTRO: jazzy
+    volumes:
+      - ../:/home/arc/arc_ws:rw
+    restart: unless-stopped
+    stop_grace_period: 3s
+    container_name: arc_lidar
+    profiles: ["lidar"]
+    command:
+      - bash
+      - -lc
+      - >-
+        ros2 launch livox_ros_driver2 msg_MID360_launch.py
+        user_config_path:=$${LIVOX_CONFIG:-/home/arc/arc_ws/config/livox/MID360_config.json}

@@ -48,3 +48,28 @@ venv/
 .env
 .env.local
 .env.*.local
+
+# Docker files
+docker/.env
+build/
+install/
+log/
+# --- Vendored upstream trees, not part of this repo -------------------------
+# PX4-Autopilot is ~4 GB with its build output and is obtained separately.
+# The required version is pinned in navigation-stack/PX4-AUTOPILOT.md.
+navigation-stack/PX4-Autopilot/
+navigation-stack/DD_Nav_WS/PX4-Autopilot/
+
+# --- Build artifacts --------------------------------------------------------
+build_local/
+build_recheck/
+build_test/
+*.zip
+
+# --- Flight logs ------------------------------------------------------------
+# Bags are large and per-flight. Archive the ones that matter outside git.
+bags/
+
+# Absolute symlink into a developer's home directory — a local convenience,
+# not portable. drone_slam itself is committed at navigation-stack/drone_slam.
+navigation-stack/DD_Nav_WS/dd_gazebo_ws/drone_slam

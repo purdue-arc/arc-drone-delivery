@@ -1,0 +1,7 @@
+#ignoring all build in and install folders in ROS_WS as they are custom to each person computer 
+# and they are made when you colcon build the workspace 
+dd_gazebo_ws/build
+dd_gazebo_ws/install
+build
+install
+log

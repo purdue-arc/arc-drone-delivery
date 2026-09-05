@@ -1,0 +1,5 @@
+Built on the HOST against ROS 2 Humble (gazebo11 dev headers live there), not
+in the Jazzy container. Build with:
+  source /opt/ros/humble/setup.bash
+  colcon build --packages-select gazebo_scan_bridge
+from a workspace whose src/ contains this package.

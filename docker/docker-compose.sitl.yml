@@ -1,0 +1,60 @@
+# docker/docker-compose.sitl.yml
+# ----------------------------------------------------------------------------
+# SITL overlay — used WITH docker-compose.yml when running against PX4 SITL
+# and Gazebo Harmonic on the host machine.
+#
+# Assumes PX4 SITL runs on the host (not in a container) because Gazebo
+# needs GPU access and is heavy to containerize. The base compose's
+# xrce_agent (MicroXRCEAgent udp4 -p 8888) is the PX4 ↔ ROS 2 link —
+# PX4 SITL's uxrce_dds_client connects to it on localhost automatically.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.sitl.yml up
+#   (or `make up-sitl` from the repo root)
+#
+# Adds a `perception` service: Gazebo camera bridge + AprilTag detector,
+# publishing /landing_target_pose for the mission controller.
+#
+# The mission controller starts IDLE — fly it with `make start`.
+# ----------------------------------------------------------------------------
+
+services:
+
+  # --------------------------------------------------------------------------
+  # WASD offboard sim (px4_offboard velocity_control FSM node).
+  # Not started by default — opt in with --profile wasd, or `docker compose
+  # run offboard` for a one-off. Talks to PX4 via the xrce_agent service.
+  #
+  # Host side (run first — the compose xrce_agent service provides the agent):
+  #   cd navigation-stack/PX4-Autopilot && \
+  #     PX4_GZ_MODEL_POSE='0,0,0.3,0,0,0' make px4_sitl gz_typhoon_h480
+  # Teleop (interactive, needs a tty):
+  #   docker compose -f docker-compose.yml -f docker-compose.sitl.yml \
+  #     run --rm --no-deps offboard ros2 run px4_offboard control
+  # --------------------------------------------------------------------------
+  offboard:
+    image: arc-drone:jazzy
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.jazzy
+      args:
+        USER_UID: ${USER_UID:-1000}
+        USER_GID: ${USER_GID:-1000}
+        ROS_DISTRO: jazzy
+    network_mode: host
+    ipc: host
+    profiles: ["wasd"]
+    container_name: arc_offboard
+    environment:
+      ROS_DOMAIN_ID: 0
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      ROS_DISTRO: jazzy
+    volumes:
+      - ../:/home/arc/arc_ws:rw
+    restart: unless-stopped
+    stop_grace_period: 3s
+    command:
+      - ros2
+      - run
+      - px4_offboard
+      - velocity_control

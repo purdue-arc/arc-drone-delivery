@@ -1,0 +1,206 @@
+# FAST-LIO2's own window. Fixed frame is `map`, which is the whole point:
+# lio_odom_bridge anchors map -> lio_odom, so the estimator's map is drawn in
+# the SAME frame as the mission's costmap. If FAST-LIO and PX4 disagree, the
+# disagreement is visible here as the LIO cloud sliding off the TF axes.
+#
+# The accumulated map is built by RViz, not by FAST-LIO: `Decay Time: 300` on
+# /fast_lio/cloud_registered keeps five minutes of registered scans on screen.
+# FAST-LIO's own /Laser_map is deliberately disabled in the configs — it grows
+# without bound in the node's memory. See the map_en note there.
+Panels:
+  - Class: rviz_common/Displays
+    Help Height: 0
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /LIO map (accumulated)1
+      Splitter Ratio: 0.5
+    Tree Height: 640
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.15
+      Cell Size: 10
+      Class: rviz_default_plugins/Grid
+      Color: 130; 130; 130
+      Enabled: true
+      Line Style:
+        Line Width: 0.03
+        Value: Lines
+      Name: Ground grid
+      Normal Cell Count: 0
+      Offset: {X: 0, Y: 0, Z: 0}
+      Plane: XY
+      Plane Cell Count: 40
+      Reference Frame: map
+      Value: true
+    # The registered scans, accumulated by RViz. Coloured by height so
+    # buildings separate from ground at a glance.
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 30
+        Min Value: 0
+        Value: false
+      Axis: Z
+      Class: rviz_default_plugins/PointCloud2
+      Color: 255; 255; 255
+      Color Transformer: AxisColor
+      Decay Time: 300
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Min Color: 0; 0; 0
+      Name: LIO map (accumulated)
+      Position Transformer: XYZ
+      Selectable: false
+      Size (Pixels): 2
+      Size (m): 0.25
+      Style: Flat Squares
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /fast_lio/cloud_registered
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+    # The current scan only, no decay — this is what the estimator is looking
+    # at right now. If this goes empty the estimator is running on IMU alone.
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Class: rviz_default_plugins/PointCloud2
+      Color: 255; 90; 40
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Name: Live scan
+      Position Transformer: XYZ
+      Selectable: false
+      Size (Pixels): 3
+      Size (m): 0.3
+      Style: Flat Squares
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /fast_lio/cloud_registered
+      Use Fixed Frame: true
+      Use rainbow: false
+      Value: true
+    # FAST-LIO's trajectory. Compare against the TF axes, which follow PX4.
+    # These two lines separating IS the measurement this window exists for.
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 0; 255; 130
+      Enabled: true
+      Head Diameter: 0
+      Head Length: 0
+      Length: 0.3
+      Line Style: Lines
+      Line Width: 0.05
+      Name: LIO track
+      Offset: {X: 0, Y: 0, Z: 0}
+      Pose Style: None
+      Radius: 0.03
+      Shaft Diameter: 0
+      Shaft Length: 0
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /fast_lio/path
+      Value: true
+    # PX4's answer, for comparison. base_link is where the flight controller
+    # thinks the aircraft is; lio_body is where FAST-LIO thinks it is.
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Frame Timeout: 15
+      Frames:
+        All Enabled: false
+        base_link: {Value: true}
+        lio_odom: {Value: true}
+        map: {Value: true}
+      Marker Scale: 4
+      Name: TF
+      Show Arrows: false
+      Show Axes: true
+      Show Names: true
+      Tree Height: 0
+      Update Interval: 0
+      Value: true
+    # The raw sensor cloud the costmap uses, off by default. Turn it on to
+    # confirm the estimator is being fed the same returns Nav2 is.
+    - Alpha: 0.6
+      Autocompute Intensity Bounds: true
+      Class: rviz_default_plugins/PointCloud2
+      Color: 120; 160; 255
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: false
+      Name: Raw /livox/points
+      Position Transformer: XYZ
+      Selectable: false
+      Size (Pixels): 2
+      Size (m): 0.15
+      Style: Flat Squares
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /livox/points
+      Use Fixed Frame: true
+      Use rainbow: false
+      Value: false
+  Enabled: true
+  Global Options:
+    Background Color: 20; 22; 28
+    Fixed Frame: map
+    Frame Rate: 20
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+      Line color: 128; 128; 0
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 120
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.06
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Focal Point: {X: 0, Y: 0, Z: 0}
+      Focal Shape Fixed Size: true
+      Focal Shape Size: 0.05
+      Invert Z Axis: false
+      Name: Orbit
+      Near Clip Distance: 0.01
+      Pitch: 0.55
+      Target Frame: map
+      Value: Orbit (rviz_default_plugins)
+      Yaw: 2.4
+    Saved: ~
+Window Geometry:
+  Displays:
+    collapsed: false
+  Height: 900
+  Hide Left Dock: false
+  Hide Right Dock: true
+  Width: 1400
+  X: 400
+  Y: 200

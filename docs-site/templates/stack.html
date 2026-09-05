@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Software Stack Reference — ARC Drone Delivery</title>
+{% include "_style.html" %}
+</head>
+<body>
+{% include "_header.html" %}
+
+  <div class="eyebrow">ARC Drone Delivery</div>
+  <h1>Software Stack Reference</h1>
+  <p class="standfirst">{{ stack.intro | safe_html }}</p>
+  <div class="meta-row"><span><b>Data updated</b> {{ stack.updated }}</span><span><b>Site built</b> {{ built_at }}</span></div>
+
+  <section class="block">
+    <h2>How to read this</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    <p>{{ stack.how_to_read | safe_html }}</p>
+    <p>
+      <span class="pill p-live">live</span> flight path &nbsp;
+      <span class="pill p-sim">sim</span> simulation only &nbsp;
+      <span class="pill p-hold">hold</span> not wired up &nbsp;
+      <span class="pill p-diag">diag</span> diagnostic &nbsp;
+      <span class="pill p-dead">dead</span> retired
+    </p>
+  </section>
+
+  <section class="block">
+    <h2>The layers</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    {% for layer in stack.layers %}
+    <div class="layer">
+      <div class="lhead">
+        <span class="lnum">{{ layer.id }}</span>
+        <span class="lname">{{ layer.name }}</span>
+        <span class="lwhat">{{ layer.what }}</span>
+      </div>
+      <div class="lbody">
+        {% for c in layer.components %}
+        <div class="comprow">
+          <span class="cn">{{ c.name }}</span>
+          <span class="pill p-{{ c.status }}">{{ c.status }}</span>
+          <span class="cd">{{ c.desc | safe_html }}</span>
+        </div>
+        {% endfor %}
+        {% if layer.tested %}
+        <h3>Tested</h3>
+        <p style="font-size:.87rem">{{ layer.tested | safe_html }}</p>
+        {% endif %}
+        {% if layer.note %}
+        <div class="verdict warn" style="margin-top:.9rem;margin-bottom:0">
+          <p style="margin:0">{{ layer.note | safe_html }}</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+
+  {% if stack.decisions %}
+  <section class="block">
+    <h2>Design decisions worth knowing</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    <ul>
+      {% for d in stack.decisions %}
+      <li>{{ d | safe_html }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+{% include "_footer.html" %}
+</body>
+</html>

@@ -4,13 +4,29 @@ This is the unified monorepo for Purdue's Autonomous Robotics Club (ARC) Drone D
 
 ## 📄 Documentation
 
-Please refer to the `Documentation` folder for project docs, guides, and technical references.
+**[CHANGELOG.md](CHANGELOG.md) — start here.** One running record of every
+significant change to the flight software, written to be readable without a
+software background. Every entry says what changed, why, **what the hardware
+team must do about it**, and what was actually tested rather than assumed. It
+also carries the current "can we fly this yet?" status and the list of things
+blocking a first flight.
+
+Add an entry there whenever you change what the aircraft does. The template
+and the major/minor rule are at the top of that file.
+
+Please refer to the `Documentation` folder for other project docs, guides, and
+technical references.
 
 ## 📁 Repository Structure
 
 ```
 arc-drone-delivery/
-├── navigation-stack/     # Core ROS 2 Navigation Workspace (DD_Nav_WS)
+├── navigation-stack/     # Core ROS 2 Navigation Workspace (DD_Nav_WS) + PX4 Gazebo simulation
+│   ├── ROS2_PX4_Offboard_Example/  # PX4 offboard velocity & navigation control
+│   ├── config/                     # SLAM toolbox + Nav2 config YAMLs
+│   ├── simple_odometry/            # Odometry TF publisher for PX4
+│   ├── default.sdf                 # Gazebo world file
+│   └── model.sdf                   # Drone model file
 ├── onboarding/           # Tutorial and onboarding materials
 ├── avoidance-viz/        # Obstacle avoidance visualization tool
 ├── path-planning/        # Path planning and SLAM algorithms
@@ -27,6 +43,19 @@ Each subdirectory contains its own README with specific setup instructions. Here
 **Path**: `navigation-stack/`  
 **Purpose**: Core ROS 2 workspace for drone navigation, PX4 integration, and Gazebo simulation  
 **Key Features**: GPS global mapping, Nav2 implementation, PX4 flight controller integration  
+**Setup**: See [navigation-stack/README.md](navigation-stack/README.md)
+
+### Drone Delivery Simulation
+**Path**: `navigation-stack/` (simulation packages)  
+**Purpose**: ROS2 PX4 Gazebo Harmonic simulation with SLAM-based mapping and Nav2 autonomous navigation  
+**Key Features**: Drone SLAM mapping, goal-based navigation via RViz2, LiDAR bridge, odometry TF publishing  
+**Prerequisites**: ROS2 Humble, Gazebo Harmonic, PX4 Autopilot  
+**Packages**:
+- `ROS2_PX4_Offboard_Example/` — offboard velocity and navigation control
+- `simple_odometry/` — odometry and TF publisher
+- `config/` — SLAM toolbox and Nav2 parameter files
+- `default.sdf` / `model.sdf` — Gazebo world and drone model  
+
 **Setup**: See [navigation-stack/README.md](navigation-stack/README.md)
 
 ### Onboarding
@@ -88,7 +117,8 @@ These tools are invaluable for:
 ## 🛠️ Development Workflow
 
 ### Prerequisites
-- **ROS 2 Humble** (for navigation-stack, onboarding)
+- **ROS 2 Humble** (for navigation-stack, onboarding, simulation)
+- **Gazebo Harmonic** (for simulation)
 - **Ubuntu 22.04** (recommended for ROS components)
 - **Node.js** (for operations-website)
 - **Python 3** (for various scripts)
@@ -123,6 +153,7 @@ This monorepo was created on **February 1, 2026** by consolidating 7 individual 
 - [`DD-obstacle-avoidance`](https://github.com/purdue-arc/DD-obstacle-avoidance) → `obstacle-avoidance/`
 - [`dd-octree_generator`](https://github.com/purdue-arc/dd-octree_generator) → `octree-generator/`
 - [`drone-delivery-website`](https://github.com/purdue-arc/drone-delivery-website) → `operations-website/`
+- [`DroneDeliverySim`](https://github.com/Ymz2006/DroneDeliverySim) → `navigation-stack/` (simulation packages)
 
 ### ⚠️ Important: Accessing Old Branches and Large Files
 
@@ -156,3 +187,67 @@ The following large files are stored in Git LFS and were **not** included in the
 - [ROS 2 Documentation](https://docs.ros.org/en/humble/)
 - [PX4 Autopilot](https://px4.io/)
 - [Gazebo Simulation](https://gazebosim.org/)
+- [DroneDeliverySim (original)](https://github.com/Ymz2006/DroneDeliverySim)
+
+## Flight software status
+
+Date: 2026-09-01
+Environment:
+- Host: Ubuntu 22.04 (unchanged)
+- Docker image: arc-drone:jazzy (Ubuntu 24.04 + ROS 2 Jazzy)
+- Workspace: ~/Documents/arc-drone-delivery
+- Build: colcon --symlink-install
+
+**PX4 interface: uXRCE-DDS end-to-end.** MAVROS has been dropped — the
+flight stack talks to PX4 directly on `/fmu/*` topics through the Micro
+XRCE-DDS Agent. There is one mission stack:
+
+| Role | Package |
+|---|---|
+| Mission logic (search + precision landing + failsafes) | `navigation-stack/.../vision_landing` (`mission_controller`) |
+| Perception, hardware (ZED) | `landing/zed_apriltag_streaming` (`zed_apriltag_node`) |
+| Perception, SITL (Gazebo camera) | `vision_landing` (`apriltag_detector`) |
+| Deployment | `docker/` — `xrce_agent`, `mission`, `perception`/`zed_apriltag` |
+
+Both perception nodes publish the same `/landing_target_pose` (camera-frame
+tag pose), so the mission controller is unchanged between sim and hardware.
+
+The mission controller starts **IDLE** and does not arm until an operator
+publishes to `/arc/mission/start` (`make start`). See
+`navigation-stack/DD_Nav_WS/dd_gazebo_ws/src/vision_landing/README.md`.
+
+### Flight readiness
+
+The full delivery mission now runs end to end **in simulation** (2026-09-01).
+Nothing in the stack has run on hardware. See [CHANGELOG.md](CHANGELOG.md) for
+the current status and the full history. Before a first powered test:
+
+- [x] Container build and launch path works (`make up-sitl` / `make up-hw`)
+- [x] PX4 topic names pinned to the firmware, and checkable (`make check-px4-topics`)
+- [x] Delivery mission wired into the hardware overlay (winch, Nav2, transit)
+- [x] Failsafe stows or drops the payload before landing (`SECURE_PAYLOAD`)
+- [x] Companion-side geofence enforced in flight; PX4 `GF_*` set in `config/px4/`
+- [x] Mission telemetry on `/arc/mission/state`, bagged with `record:=true`
+- [x] Unit tests on the two transforms that place the aircraft (`make test`)
+- [ ] **Livox driver** vendored and publishing `/livox/points` — until then the
+      transit refuses to fly (`require_plan_to_transit`), by design
+- [ ] **Winch bench-tested** with a load, props off — the timings in
+      `winch_bridge` are unmeasured placeholders
+- [ ] **Gimbal sweep verified** against a protractor, props off
+- [ ] **ZED calibration generated** and `CALIB_FILE` set — perception now
+      refuses to start without it
+- [x] Full mission flown end to end in SITL — takeoff, transit with obstacle
+      avoidance, winch drop, return, tag search, precision landing, disarm
+- [ ] **Resolve the mid-air disarm risk in the touchdown logic** — see the
+      2026-09-01 CHANGELOG entry, "Risks still open"
+- [ ] Failsafe exercised *during* a winch drop in SITL (`SECURE_PAYLOAD` has
+      never run)
+- [ ] Full mission flown repeatedly in SITL
+
+`config/px4/README.md` lists the bench tests these imply.
+
+Deprecated:
+- `arc_landing` — the old MAVROS landing FSM (see `arc_landing/DEPRECATED.md`)
+
+Ignored via COLCON_IGNORE:
+- navigation-stack/PX4-Autopilot (flight controller, not a ROS package)

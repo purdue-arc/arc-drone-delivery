@@ -1,0 +1,300 @@
+# Software Stack Reference — structured source data
+#
+# This file is the source of truth for the "Software Stack Reference" page.
+# It does NOT regenerate itself from CHANGELOG.md automatically — new
+# components, retirements, and status changes to the *architecture* need a
+# person (or Claude, asked to do it) to edit this file when the repo's
+# structure actually changes. What IS automatic: any commit to this file
+# rebuilds the live page within a minute or two via the docs.yml workflow,
+# same as a CHANGELOG.md commit does for the Logbook.
+#
+# status values: live | sim | hold | diag | dead
+#   live = flight path (runs on the aircraft, or is meant to)
+#   sim  = simulation only
+#   hold = written, not in any running configuration
+#   diag = diagnostic, runs only when a human is watching
+#   dead = retired, kept for reference, deliberately not built
+
+updated: "2026-09-03"
+intro: >
+  Every piece of software in the repository, top to bottom — from the
+  operator's browser down to the flight controller — with what each part
+  does, what it talks to, and whether it is actually used.
+how_to_read: >
+  The stack is nine layers. Signals flow **down** from an operator's intent
+  to motor commands, and **up** from sensors to the operator's screen.
+  Anything marked retired is on disk but excluded from the build on
+  purpose — usually because running it would put a second controller in
+  competition with the mission for the aircraft.
+
+layers:
+  - id: L1
+    name: "Operator & ground"
+    what: "What a human touches. Runs on a laptop or phone, never on the aircraft."
+    components:
+      - name: operations-website
+        desc: >
+          Web operations dashboard. A JS monorepo (npm workspaces +
+          `symlink-dir`) whose one package is `admin-dashboard`: **Solid.js**
+          with **SolidStart** routing, **SUID** for components,
+          **solid-chartjs** for telemetry plots, and **Nhost**
+          (`@nhost/nhost-js` + `@merged/solid-apollo`) as the GraphQL/Postgres
+          backend. CesiumJS provides the 3D map view.
+        status: hold
+      - name: streaming/
+        desc: >
+          **MediaMTX** in Docker, republishing the ZED camera feed as
+          RTSP/WebRTC/HLS so it can be watched in VLC or a browser. Separate
+          from the flight-critical video path.
+        status: hold
+      - name: RViz configs
+        desc: >
+          Three saved views in `vision_landing/config/` and
+          `drone_slam/rviz/`: **nav**, **perception**, **slam_3d**.
+        status: live
+      - name: Mission start / abort
+        desc: >
+          No GUI. The mission is armed by publishing to
+          `/arc/mission/start`; `{data:false}` aborts into PX4
+          `AUTO.LAND`. `make start` / `make abort` wrap it.
+        status: live
+    note: >
+      **Gap.** The dashboard and the flight stack do not talk to each
+      other. Nothing publishes mission state to the web app, and the app
+      cannot start or abort a mission. The aircraft's only operator
+      interface today is a terminal.
+
+  - id: L2
+    name: "Deployment"
+    what: "How the software gets onto a machine and starts. The same image runs on a laptop and on the Jetson."
+    components:
+      - name: docker/Dockerfile.jazzy
+        desc: >
+          One image for everything: Ubuntu 24.04, ROS 2 Jazzy (ros-base),
+          Nav2, slam-toolbox, robot_localization, AprilTag, OpenCV,
+          GStreamer, RViz, and the Micro XRCE-DDS Agent built from source at
+          v2.4.3.
+        status: live
+      - name: docker/entrypoint.sh
+        desc: >
+          Sources ROS, builds the workspace with explicit `--base-paths`
+          (this repo is a monorepo with no top-level `src/`), and refuses
+          to start if a required package is missing rather than
+          restart-looping.
+        status: live
+      - name: docker-compose{,.sitl,.hardware}.yml
+        desc: >
+          Base plus two overlays. Services: `xrce_agent`, `mission`, and on
+          hardware `zed_capture` and `lidar` as opt-in profiles.
+        status: live
+      - name: Makefile
+        desc: "Operator verbs: `build`, `up-sitl`, `up-hw`, `start`, `abort`, `logs`, `shell`, `mission-state`, `check-px4-topics`, `test`."
+        status: live
+      - name: scripts/hooks/
+        desc: "`pre-commit-changelog` — warns (never blocks) when flight source is committed without a CHANGELOG entry."
+        status: live
+
+  - id: L3
+    name: "Mission — vision_landing"
+    what: "The brain. Decides what the aircraft does and issues every movement command."
+    components:
+      - name: mission_controller
+        desc: >
+          Owns the landing decision and the whole flight state machine:
+          IDLE → WARMUP → TAKEOFF → TRANSIT → DELIVER → SECURE_PAYLOAD? →
+          RETURN → SEARCH → GOTO_TAG → LAND → LANDED, with FAILSAFE_LAND and
+          PILOT_OVERRIDE reachable from anywhere. The winch drop runs on its
+          own phase counter (`NOT_STARTED → LOWERING → RELEASING →
+          RETRACTING`), not the latched `/arc/winch/state`. All per-leg
+          guard state resets in `transition()`, the one place a leg can
+          change. Commanded direction, yaw and lead-distance are all
+          rate-limited so the attitude reference can never step.
+        status: live
+      - name: flight_level_filter
+        desc: >
+          Cuts the lidar cloud to a band around the aircraft's own altitude
+          before the costmap sees it. Publishes nothing on a TF failure,
+          deliberately — this topic is the costmap's marking-only source.
+        status: live
+      - name: nav2_path_bridge
+        desc: "Asks Nav2 for a route via `ComputePathToPose` and republishes it. Deliberately does not use `NavigateToPose`."
+        status: live
+      - name: gimbal_bridge
+        desc: "Turns a tilt angle in radians into PX4 gimbal-manager commands."
+        status: live
+      - name: winch_bridge
+        desc: "Runs the lower / release / retract sequence on two PX4 AUX actuators. Time-based; accepts an optional stowed limit switch."
+        status: live
+      - name: cloud_to_scan
+        desc: "Flattens the 3D cloud into a 2D `LaserScan` for the SLAM node."
+        status: sim
+      - name: costmap_to_cloud
+        desc: "Republishes the costmap as a point cloud so RViz can render it here (shader link failure blocks the native renderer). Display aid only."
+        status: diag
+      - name: vio_node
+        desc: "Visual-inertial odometry feeding the PX4 estimator. Hardcoded intrinsics, subscribes to topics nothing publishes."
+        status: dead
+      - name: "apriltag_detector, landing_controller, pose_estimator, payload_bridge"
+        desc: "Superseded prototypes, excluded from the build and documented as such in `CMakeLists.txt`."
+        status: dead
+    tested: "`test/test_mission_math.cpp` — 18 unit tests over the two transforms that decide where the aircraft physically ends up: camera sighting → map position, and GPS address → local position."
+
+  - id: L4
+    name: "Navigation & mapping"
+    what: "Where the aircraft is, what is around it, and how to get past it."
+    components:
+      - name: livox_ros_driver2
+        desc: >
+          **The Livox Mid-360 driver — the aircraft's only obstacle
+          sensor.** Vendored at version 1.2.7 and pinned by commit. Launched
+          by our own launch file, not the driver's own — those publish
+          either an unreadable custom message format or open an RViz
+          window an aircraft doesn't have. **Has never seen a sensor.**
+        status: live
+      - name: Nav2 planner_server
+        desc: "Global route planning over the costmap. The controller_server is deliberately not started — Nav2 plans, the mission flies."
+        status: live
+      - name: drone_nav (costmaps)
+        desc: >
+          Two observation sources: marking from the flight-level cloud,
+          clearing from the raw cloud at short range. The global costmap is
+          persistent — 1400×1400 m at 0.75 m, fixed and centred on the pad.
+          A delivery further than 450 m from the pad is refused at
+          preflight.
+        status: live
+      - name: drone_nav / odom_publisher_broadcaster
+        desc: "Converts PX4 odometry (NED/FRD) into ROS (ENU/FLU) and publishes the transform chain `odom → base_footprint → base_link`."
+        status: live
+      - name: "drone_nav / footprint_tf_broadcaster, stabilized_tf_broadcaster"
+        desc: "Not started — one reads a PX4 message that no longer matches this firmware, the other subscribes to a topic that does not exist here."
+        status: dead
+      - name: drone_slam / slam_node
+        desc: "2D occupancy mapping from the flattened scan, matching the Nav2 costmap grid exactly. Observer only."
+        status: live
+      - name: drone_slam / slam_3d_node
+        desc: "3D voxel mapping from the full cloud. Mapping with known poses, not full SLAM — takes the flight controller's position as truth."
+        status: live
+      - name: pointcloud_to_grid
+        desc: "Alternative cloud → occupancy grid. Needs `pcl_ros`, which is not in the image; excluded from the build."
+        status: hold
+      - name: simple_odometry
+        desc: "Earlier PX4 → TF publisher, superseded by `drone_nav`."
+        status: dead
+
+  - id: L5
+    name: "Perception"
+    what: "Finding the landing pad by camera."
+    components:
+      - name: zed_apriltag_streaming / zed_apriltag_node
+        desc: >
+          Decodes an H.264 RTP stream, detects AprilTags (tag36h11), and
+          publishes the tag's camera-frame pose. One node serves both
+          simulation and the aircraft. Refuses to start without usable
+          intrinsics, reconnects if the stream drops.
+        status: live
+      - name: zed_calib_to_yaml.py
+        desc: "Converts the ZED's factory calibration into the intrinsics file the node requires."
+        status: live
+      - name: zed_capture (compose service)
+        desc: "GStreamer pipeline on the Jetson encoding the ZED to H.264, sent to localhost. Supervised, restart-on-failure."
+        status: live
+
+  - id: L6
+    name: "Flight controller interface"
+    what: "The boundary between our software and PX4."
+    components:
+      - name: Micro XRCE-DDS Agent
+        desc: "Bridges PX4's internal messaging onto ROS 2 topics. UDP in simulation, serial to the Pixhawk on hardware. MAVROS was dropped in favour of this."
+        status: live
+      - name: px4_msgs
+        desc: "ROS 2 message definitions matching PX4. 63 of 227 differ from the firmware in this repo; none of the differing ones are used by the mission."
+        status: live
+      - name: px4_ros_com
+        desc: "Frame-conversion helpers (NED↔ENU, FRD↔FLU) used by the odometry publisher."
+        status: live
+      - name: config/px4/
+        desc: "The flight controller's own settings, written down for the first time: gimbal routing, winch AUX outputs, DDS transport, geofence, offboard-loss behaviour."
+        status: live
+    note: >
+      **Topic names are versioned, inconsistently.** PX4 appends a suffix
+      only to messages that carry a versioned definition. Always verify
+      with `ros2 topic list | grep fmu/out` — the source's topic table is
+      not what appears on the wire.
+
+  - id: L7
+    name: "Simulation"
+    what: "Stands in for the aircraft. None of this ships."
+    components:
+      - name: PX4 SITL + Gazebo Classic
+        desc: "Real PX4 firmware against a simulated airframe (typhoon_h480), in lockstep."
+        status: sim
+      - name: sim/worlds/purdue_campus.world
+        desc: >
+          The real campus: 26 OSM building footprints at their true
+          positions, extruded with collision. Gazebo's frame here is
+          ENU — +x is east, +y is north.
+        status: sim
+      - name: sim/worlds/apriltag_landing.world
+        desc: "Bare ground plane plus the tag, for search-and-land work."
+        status: sim
+      - name: gazebo_scan_bridge
+        desc: "Bridges a Gazebo ray sensor into a PointCloud2 on `/livox/points` — the same topic the real Livox driver publishes."
+        status: sim
+      - name: sim/models/typhoon_h480.sdf
+        desc: >
+          The airframe with a Livox Mid-360 stand-in added as a ray
+          sensor, mounted `under_drone` at `z = −0.15`, matching the
+          aircraft.
+        status: sim
+      - name: gazebo_apriltag
+        desc: "Tag models and textures for the simulated landing pad."
+        status: sim
+      - name: px4_offboard
+        desc: "WASD keyboard teleoperation for manual offboard flying. Useful for shaking out the DDS link; not part of the mission."
+        status: hold
+    note: >
+      **The 933 MB campus mesh cannot be used.** As collision geometry the
+      simulator never finished loading it; even as scenery it starved the
+      simulation. The world uses OSM footprints instead.
+
+  - id: L8
+    name: "Research & prototypes"
+    what: "Standalone work, not part of any running configuration."
+    components:
+      - name: path-planning
+        desc: "C++ implementations of A*, D* and Dijkstra, plus the OSM extract the simulation world and both delivery routes are derived from."
+        status: hold
+      - name: obstacle-avoidance
+        desc: "Intel RealSense obstacle detection, C++ / Visual Studio, Windows. Predates the Livox decision."
+        status: hold
+      - name: octree-generator
+        desc: "Python scripts building octree representations from OSM data."
+        status: hold
+      - name: avoidance-viz
+        desc: "Visualisation tool for checking avoidance behaviour offline."
+        status: hold
+      - name: onboarding
+        desc: "Tutorial material for new members: git, ROS 2 basics, Gazebo, publishers and subscribers."
+        status: hold
+
+  - id: L9
+    name: "Retired"
+    what: "On disk, excluded from the build on purpose."
+    components:
+      - name: arc_landing
+        desc: "The previous landing state machine, built on MAVROS. Superseded when the stack moved to a direct flight-controller link. Carries a `DEPRECATED.md` and a `COLCON_IGNORE`."
+        status: dead
+      - name: dd_gazebo
+        desc: "Earlier simulation package; deleted from the working tree, still in git history."
+        status: dead
+      - name: "Repo-root build/, install/, log/"
+        desc: "A months-old host build against a different ROS distro. Marked `COLCON_IGNORE` — a container that sourced it silently resolved the retired MAVROS stack instead of the current mission."
+        status: dead
+
+decisions:
+  - "**Nav2 plans; the mission flies.** The controller server is never started. Two things commanding one aircraft is the failure mode this stack has been bitten by before."
+  - "**The pilot always wins.** The moment the flight mode leaves offboard, the mission goes permanently passive. It never fights a pilot for the aircraft."
+  - "**The aircraft never lands at the customer.** It hovers and lowers the package on a winch, so the rotors stay clear of people and property. It only lands at home, on the AprilTag charging pad."
+  - "**Obstacle safety is checked, not assumed.** Every tick re-tests that a costmap exists, a route exists, and the route ahead is still clear. Any failure holds position rather than flying on an old answer."
+  - "**The obstacle map is altitude-relative.** A 2D costmap cannot say \"that is below me\". Filtering the cloud to the aircraft's own flight level makes \"obstacle\" mean \"at my height\"."
+  - "**Marking and clearing use different data.** Marking from the flight-level cloud, clearing from the raw cloud at short range. Using one source for both either deadlocks the aircraft or erases the map."

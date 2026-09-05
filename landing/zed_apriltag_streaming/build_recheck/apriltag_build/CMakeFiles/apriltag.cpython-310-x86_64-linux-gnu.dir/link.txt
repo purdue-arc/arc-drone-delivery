@@ -1,0 +1,1 @@
+/usr/bin/cc -fPIC -O3 -DNDEBUG -shared  -o apriltag.cpython-310-x86_64-linux-gnu.so CMakeFiles/apriltag.cpython-310-x86_64-linux-gnu.dir/apriltag_pywrap.c.o  -Wl,-rpath,/home/raghav/Documents/arc-drone-delivery/landing/zed_apriltag_streaming/build_recheck/apriltag_build: libapriltag.so.3.4.5 -lm 

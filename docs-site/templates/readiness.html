@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flight Readiness Review — ARC Drone Delivery</title>
+{% include "_style.html" %}
+</head>
+<body>
+{% include "_header.html" %}
+
+  <div class="eyebrow">ARC Drone Delivery &middot; Navigation Stack</div>
+  <h1>Flight Readiness Review</h1>
+  <p class="standfirst">{{ readiness.audit.standfirst | safe_html }}</p>
+  <div class="verdict">
+    <p style="margin:0">{{ readiness.audit.banner | safe_html }}</p>
+  </div>
+  <div class="meta-row">
+    <span><b>Audit date</b> {{ readiness.audit.date }}</span>
+    <span><b>Branch</b> {{ readiness.audit.branch }}</span>
+    <span><b>Scope</b> {{ readiness.audit.scope }}</span>
+    <span><b>Method</b> {{ readiness.audit.method }}</span>
+  </div>
+
+  <section class="block">
+    <h2>Subsystem status</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    <p style="font-size:.85rem;color:var(--ink-3)">Synced live from <code>CHANGELOG.md</code>'s "Current status" table — this is not hand-maintained here.</p>
+    <div class="cardgrid">
+      {% for s in readiness.subsystem_board %}
+      <div class="cell">
+        <span class="sys">{{ s.name }}</span>
+        <span class="note">{{ s.state | safe_html }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>Blocking a first flight</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    <div class="tw"><table>
+      <tr><th>#</th><th>What</th><th>Who</th></tr>
+      {% for b in readiness.blocking %}
+      <tr><td class="mono">{{ b.n }}</td><td>{{ b.what | safe_html }}</td><td>{{ b.who }}</td></tr>
+      {% endfor %}
+    </table></div>
+    {% if readiness.closed_note %}
+    <p style="font-size:.87rem">{{ readiness.closed_note | safe_html }}</p>
+    {% endif %}
+  </section>
+
+  <section class="block">
+    <h2>Verdict</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    <div class="verdict ok">
+      <div class="big">{{ readiness.verdict.headline | safe_html }}</div>
+      <p>{{ readiness.verdict.body | safe_html }}</p>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>Blockers &mdash; original audit</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    <p>Each of these stopped the mission outright.</p>
+    <div class="findings">
+      {% for f in readiness.blockers %}
+      <div class="finding {{ f.resolution }}">
+        <p><span class="fid">{{ f.id }}</span><h3 class="ftitle">{{ f.title }}</h3></p>
+        <p>{{ f.body | safe_html }}</p>
+        <div class="fix"><b>Fix proposed</b>{{ f.fix | safe_html }}</div>
+        <div class="resolution">
+          <b class="tag">{{ "Fixed" if f.resolution == "done" else "Fixed in software · hardware task open" }}</b>
+          {{ f.resolution_text | safe_html }}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>Safety gaps</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    <p>These didn't stop the mission from running &mdash; they're the reasons it wasn't ready to run over anything anyone cares about.</p>
+    <div class="findings">
+      {% for f in readiness.safety_gaps %}
+      <div class="finding {{ f.resolution }}">
+        <p><span class="fid">{{ f.id }}</span><h3 class="ftitle">{{ f.title }}</h3></p>
+        <p>{{ f.body | safe_html }}</p>
+        <div class="fix"><b>Fix proposed</b>{{ f.fix | safe_html }}</div>
+        <div class="resolution">
+          <b class="tag">{{ "Fixed" if f.resolution == "done" else "Fixed in software · bench check open" }}</b>
+          {{ f.resolution_text | safe_html }}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>Smaller defects</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    <div class="tw"><table>
+      <tr><th>#</th><th>Where</th><th>Issue</th><th>Status</th></tr>
+      {% for d in readiness.smaller_defects %}
+      <tr><td class="mono">{{ d.id }}</td><td class="mono">{{ d.where }}</td><td>{{ d.issue | safe_html }}</td><td>{{ d.status | safe_html }}</td></tr>
+      {% endfor %}
+    </table></div>
+  </section>
+
+  <section class="block">
+    <h2>Path to a first flight test</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    <p>Ordered because each gate is what makes the next one meaningful.</p>
+    {% for g in readiness.gates %}
+    <div class="phase">
+      <div class="tag">{{ g.tag }}</div>
+      <div>
+        <h3>{{ g.title }}</h3>
+        <p>{{ g.body | safe_html }}</p>
+        <p class="gate"><b>Gate:</b> {{ g.gate | safe_html }}</p>
+      </div>
+    </div>
+    {% endfor %}
+  </section>
+
+  {% if readiness.closing %}
+  <section class="block">
+    <h2>The honest summary</h2>
+    <div class="trace"><div class="node"></div><div class="ln"></div></div>
+    <div class="verdict">
+      {% for p in readiness.closing %}
+      <p{{ ' style="margin:0"' if loop.last }}>{{ p | safe_html }}</p>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+{% include "_footer.html" %}
+</body>
+</html>
