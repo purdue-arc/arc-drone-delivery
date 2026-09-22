@@ -1,11 +1,16 @@
-# Setup — Ubuntu 22.04
+# Setup — Ubuntu 22.04 / 24.04
 
-Day-zero guide: a blank Ubuntu 22.04 machine to a flying SITL mission. This
-covers *getting the stack running*; for what the stack does and why, see
+Day-zero guide: a blank Ubuntu machine to a flying SITL mission. This covers
+*getting the stack running*; for what the stack does and why, see
 [CHANGELOG.md](CHANGELOG.md) (current flight status) and
 [docker/README.md](docker/README.md) (architecture). New to Git, ROS 2, or
 Gazebo entirely? Start with [onboarding/README.md](onboarding/README.md)
 first — it's a from-scratch tutorial, not specific to this repo.
+
+The numbered steps below are written for **22.04**, the fully-validated host
+— someone has taken a blank 22.04 machine through every step, including
+flying the mission. **24.04** works too, but with one real gap: see
+[Setup on Ubuntu 24.04](#setup-on-ubuntu-2404) before you start Step 4.
 
 ## What you end up with
 
@@ -14,11 +19,13 @@ run natively on the host. They talk over ROS 2 DDS on the host network. At
 the end of this guide you'll have a simulated drone arm, search, find an
 AprilTag, and land on it.
 
-Ubuntu 22.04 is the supported host — not because the flight software needs
-22.04 specifically (it runs in an Ubuntu 24.04 container regardless), but
-because `network_mode: host` (required for DDS discovery) and the X11 mount
-for GUI tools are Linux-native behaviors that aren't reliably supported on
-Docker Desktop for Mac/Windows.
+A Linux host (not Mac/Windows) is required — not because the flight software
+needs it specifically (it runs in an Ubuntu 24.04 container regardless of
+host distro), but because `network_mode: host` (required for DDS discovery)
+and the X11 mount for GUI tools are Linux-native behaviors that aren't
+reliably supported on Docker Desktop for Mac/Windows. Within Linux, 22.04 and
+24.04 both work for that part; the one place the two diverge is **Gazebo
+Classic packaging**, covered below.
 
 ## 1. Host packages
 
@@ -145,6 +152,57 @@ make abort
 ```
 
 `make down` tears the containers back down.
+
+## Setup on Ubuntu 24.04
+
+Steps 1, 2, 3, 5, 6, 8 and 9 above are unchanged on 24.04 — cloning the repo,
+Docker Engine, and building/running the `arc-drone:jazzy` container don't
+care about host distro. **Step 4 (PX4-Autopilot) and Step 7 (starting SITL)
+are where 24.04 diverges**, because of Gazebo, not PX4 itself.
+
+### The blocker: Gazebo Classic has no package for 24.04 (noble)
+
+This project's SITL setup uses **Gazebo Classic** (`gazebo11`,
+`make px4_sitl gazebo-classic_typhoon_h480`), not the newer Gazebo (`gz`)
+line. Gazebo Classic was only ever packaged by Ubuntu/OSRF through **22.04
+(jammy)** — there is no `gazebo11` package for 24.04. PX4 itself confirms
+this: `Tools/setup/ubuntu.sh` in current PX4-Autopilot checkouts installs
+**Gazebo Harmonic** on 22.04+ (it no longer installs Classic on any distro),
+and PX4's own docs describe reinstalling Gazebo Classic as a 22.04-only
+procedure.
+
+Since this repo's custom world (`apriltag_landing`) and models
+(`navigation-stack/PX4-Autopilot/../gazebo_apriltag/models`) are built for
+Classic, not Harmonic, `bash ./Tools/setup/ubuntu.sh` and the
+`gazebo-classic_typhoon_h480` make target in Step 4/7 do not work out of the
+box on a 24.04 host — `apt install gazebo11` has no candidate to install.
+
+### What to do about it
+
+Pick one, depending on why you're on 24.04:
+
+- **You just want to fly the mission in SITL (most new members):** do Step 4
+  and Step 7 (the native PX4/Gazebo pieces) from a 22.04 VM (e.g.
+  [Multipass](https://multipass.run/) or VirtualBox) or a 22.04 machine, and
+  run everything else — Docker build, `make up-sitl`, `make start` — from
+  there too. It's simplest to keep the whole guide on one 22.04 environment
+  rather than split native Gazebo onto a VM and Docker onto the 24.04 host;
+  splitting them means bridging ROS 2 DDS discovery across two machines/VMs,
+  which is real extra work `network_mode: host` doesn't solve for you.
+- **You mainly need the Docker flight stack (not native SITL)** — e.g.
+  working on the mission controller, ROS 2 nodes, or anything that runs
+  inside `arc-drone:jazzy` — 24.04 works unmodified. Skip Step 4/7 and come
+  back to them later if you need full SITL.
+- **You want to build `gazebo11` from source on 24.04 anyway:** it's
+  possible in principle but unverified by this team and not documented here
+  — expect to hand-resolve dependency versions. Search
+  [PX4/PX4-Autopilot#20834](https://github.com/PX4/PX4-Autopilot/issues/20834)
+  and the [Gazebo/Open Robotics Discourse](https://discourse.openrobotics.org/)
+  for the current state before sinking time into it.
+
+If the project migrates the sim to Gazebo Harmonic in the future (removing
+this gap entirely), that'll show up as a `CHANGELOG.md` entry — check there
+before assuming this section is still accurate.
 
 ## Known gotchas
 

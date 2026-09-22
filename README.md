@@ -5,7 +5,7 @@ This is the unified monorepo for Purdue's Autonomous Robotics Club (ARC) Drone D
 ## 📄 Documentation
 
 **[SETUP.md](SETUP.md)** — day-zero guide for getting the flight software
-running on a fresh Ubuntu 22.04 machine (Docker + PX4 SITL).
+running on a fresh Ubuntu 22.04 or 24.04 machine (Docker + PX4 SITL).
 
 **[CHANGELOG.md](CHANGELOG.md) — start here.** One running record of every
 significant change to the flight software, written to be readable without a
