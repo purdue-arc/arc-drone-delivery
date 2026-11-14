@@ -116,7 +116,7 @@ services:
         udp_port:=$${RTP_PORT:-5600}
         tag_size_m:=$${TAG_SIZE_M:-0.4}
         target_tag_id:=$${TARGET_TAG_ID:-0}
-        calib_file:=$${CALIB_FILE:-}
+        $${CALIB_FILE:+calib_file:=$$CALIB_FILE}
         delivery_lat:=$${DELIVERY_LAT:-nan}
         delivery_lon:=$${DELIVERY_LON:-nan}
         transit_height_m:=$${TRANSIT_HEIGHT_M:-15.0}

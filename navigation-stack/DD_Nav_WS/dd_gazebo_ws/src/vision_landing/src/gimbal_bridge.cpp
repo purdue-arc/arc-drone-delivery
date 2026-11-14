@@ -92,6 +92,7 @@ private:
   // matches the /gimbal_tilt_cmd convention directly.
   void send_pitch(double tilt_rad)
   {
+    claim_control();
     px4_msgs::msg::VehicleCommand cmd;
     cmd.command = px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_GIMBAL_MANAGER_PITCHYAW;
     cmd.param1  = static_cast<float>(tilt_rad * 180.0 / M_PI);  // pitch, deg
@@ -99,6 +100,26 @@ private:
     cmd.param3  = NAN;                                           // pitch rate
     cmd.param4  = NAN;                                           // yaw rate
     cmd.param5  = 0.0f;                                          // flags
+    cmd.param7  = static_cast<float>(gimbal_device_id_);
+    publish(cmd);
+  }
+
+  // PX4's gimbal manager (MNT_MODE_IN 4) denies PITCHYAW from anyone but the
+  // sysid/compid in primary control, and it only hands control to the
+  // autopilot by itself when a ROI_NONE happens to be published. When it
+  // isn't, control stays 0/0 and every tilt is silently denied: the camera
+  // stays level and the search never sees the pad. -2/-2 = "set itself"
+  // (MAV_SYS_ID/MAV_COMP_ID), which is the source we send from. Sent before
+  // every setpoint so a claim lost before the DDS link is up is retried;
+  // PX4 only acts on it when control actually changes.
+  void claim_control()
+  {
+    px4_msgs::msg::VehicleCommand cmd;
+    cmd.command = px4_msgs::msg::VehicleCommand::VEHICLE_CMD_DO_GIMBAL_MANAGER_CONFIGURE;
+    cmd.param1  = -2.0f;  // primary sysid: self
+    cmd.param2  = -2.0f;  // primary compid: self
+    cmd.param3  = -1.0f;  // secondary sysid: unchanged
+    cmd.param4  = -1.0f;  // secondary compid: unchanged
     cmd.param7  = static_cast<float>(gimbal_device_id_);
     publish(cmd);
   }

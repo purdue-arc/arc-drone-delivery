@@ -14,6 +14,7 @@
 #include <std_msgs/msg/string.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
+#include <algorithm>
 #include <cmath>
 
 #include "vision_landing/mission_math.hpp"
@@ -234,6 +235,43 @@ public:
     target_blocked_abort_sec_ = declare_parameter("target_blocked_abort_sec", 20.0);
     // How long the best distance achieved may stagnate before giving up.
     no_progress_sec_ = declare_parameter("no_progress_sec", 90.0);
+
+    // ── reference smoothing ─────────────────────────────────────────────────
+    // Limits on the SETPOINT, never on the safety checks (CHANGELOG
+    // 2026-09-03, "Why the aircraft kept falling out of the sky"). Nav2 can
+    // hand over a route that points somewhere else, and following each one
+    // instantly stepped the attitude reference: 180 deg reversals every
+    // 1.5 s tumbled the airframe, and at smaller scale the same thing makes
+    // the transit weave.
+    //
+    // How fast the commanded direction of travel may turn. A 180 deg reroute
+    // becomes a 4 s arc instead of a one-tick slam.
+    bearing_rate_limit_rad_s_ = static_cast<float>(
+      declare_parameter("bearing_rate_limit_deg_s", 45.0) * M_PI / 180.0);
+    // Shortest interval between replans forced by a blocked route. Nav2
+    // answers roughly every couple of seconds; asking at 20 Hz only made each
+    // alternation between two routes reach the controller.
+    replan_min_interval_sec_ = declare_parameter("replan_min_interval_sec", 2.0);
+    // How fast any commanded yaw may change, in every state. Well above
+    // anything asked for on purpose (SEARCH sweeps at 11.5 deg/s), so it only
+    // ever bites a step.
+    yaw_rate_limit_rad_s_ = static_cast<float>(
+      declare_parameter("yaw_rate_limit_deg_s", 60.0) * M_PI / 180.0);
+    // How fast the lead distance ahead of the aircraft may GROW. It drops to
+    // zero the instant a hold begins: smooth on the way up, instant on the
+    // way down, because stopping at once is the whole point of a hold.
+    carrot_ramp_m_s_ = static_cast<float>(declare_parameter("carrot_ramp_m_s", 2.0));
+
+    // ── where a guided leg aims (see fly_guided_leg) ────────────────────────
+    // Farthest point along the route to aim at when the straight line to it
+    // is clear. Capped at lookahead_check_m: the aim must never lie beyond
+    // the stretch of route that is re-checked every tick.
+    los_aim_max_m_ = std::min(
+      static_cast<float>(declare_parameter("los_aim_max_m", 12.0)), lookahead_check_m_);
+    los_aim_max_m_ = std::max(los_aim_max_m_, path_lookahead_m_);
+    // Fly the straight line to the destination whenever the costmap at the
+    // current flight level shows it clear. A route is still required first.
+    direct_when_clear_ = declare_parameter("direct_when_clear", true);
 
     // PX4 topic names.
     //
@@ -682,6 +720,12 @@ private:
   {
     if (s != state_) {
       RCLCPP_INFO(get_logger(), "STATE %s -> %s", state_name(state_), state_name(s));
+      // A new leg starts from rest: re-seed the direction filter from its
+      // first route and ramp the lead up from zero. The yaw limiter is NOT
+      // reset here; it guards every setpoint across every transition.
+      bearing_valid_ = false;
+      lead_m_ = 0.0f;
+      direct_mode_ = false;
     }
     state_ = s;
     state_entered_ = now();
@@ -797,6 +841,33 @@ private:
     return true;
   }
 
+  // Line-of-sight aim on the planned route: the farthest pose no more than
+  // los_aim_max_m from the vehicle that it can reach in a straight line
+  // through clear costmap. Never nearer than path_carrot's point; if nothing
+  // farther is clear, that point stands and step 6 decides whether to move.
+  void los_carrot(float & nx, float & ny) const
+  {
+    if (!path_carrot(nx, ny)) return;
+    size_t best = 0;
+    double best_d = 1e18;
+    for (size_t i = 0; i < path_.poses.size(); ++i) {
+      const double d = std::hypot(path_.poses[i].pose.position.y - current_ned_x_,
+                                  path_.poses[i].pose.position.x - current_ned_y_);
+      if (d < best_d) { best_d = d; best = i; }
+    }
+    for (size_t i = best; i < path_.poses.size(); ++i) {
+      const float pn = static_cast<float>(path_.poses[i].pose.position.y);
+      const float pe = static_cast<float>(path_.poses[i].pose.position.x);
+      const float d = std::hypot(pn - current_ned_x_, pe - current_ned_y_);
+      if (d > los_aim_max_m_) break;
+      if (d >= path_lookahead_m_ &&
+          !segment_blocked(current_ned_x_, current_ned_y_, pn, pe)) {
+        nx = pn;
+        ny = pe;
+      }
+    }
+  }
+
   // One guided leg, used by BOTH the outbound transit and the return.
   //
   // The return used to be a plain straight line home while the outbound leg
@@ -833,6 +904,7 @@ private:
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
           "%s: HOLDING — %s", leg, why);
       }
+      lead_m_ = 0.0f;   // the lead collapses at once; only its growth is ramped
       publish_setpoint(current_ned_x_, current_ned_y_, hold_z, current_heading_);
     };
 
@@ -916,12 +988,66 @@ private:
           leg);
       }
 
+      // Where to aim. A route is still REQUIRED above (step 4), so planner,
+      // costmap and lidar are known to be up; this only chooses the point.
+      //
+      //   Direct: if the straight line to the destination crosses nothing the
+      //   costmap holds at this flight level, fly the line itself rather than
+      //   the route's curves. At a transit height above every building the
+      //   flight-level costmap is empty and the whole leg is one straight
+      //   line. "Nothing" means nothing seen so far (unobserved cells read as
+      //   free, as they do for the planner); the line is re-tested every tick,
+      //   so a building the lidar picks up ends direct flight at once.
+      //
+      //   Route: otherwise aim at the farthest point along the route, within
+      //   los_aim_max_m, that is reachable in a straight clear line. A route
+      //   redrawn every couple of seconds shifts a point 4 m ahead by degrees;
+      //   one 12 m ahead by a third as much. Near a building the clear line
+      //   shortens and the aim falls back towards path_lookahead_m.
+      const bool direct = planned && direct_when_clear_ && costmap_fresh() &&
+        !segment_blocked(current_ned_x_, current_ned_y_, tgt_n, tgt_e);
+      if (direct != direct_mode_) {
+        RCLCPP_INFO(get_logger(), "%s: %s", leg, direct
+          ? "straight line to the destination is clear — flying it directly"
+          : "straight line to the destination is blocked — following the route");
+        direct_mode_ = direct;
+      }
+      if (direct) {
+        const float reach = std::min(los_aim_max_m_, dist);
+        aim_n = current_ned_x_ + (dx / dist) * reach;
+        aim_e = current_ned_y_ + (dy / dist) * reach;
+      } else if (planned && costmap_fresh()) {
+        los_carrot(aim_n, aim_e);
+      }
+
+      // Rate-limit the commanded direction BEFORE the obstacle checks, so
+      // steps 5 and 6 validate the direction actually about to be flown, not
+      // the raw planner output: smoothing a reference must never smooth it
+      // past a safety check. The filter also advances on ticks that end in a
+      // hold, so a reversed plan cannot deadlock against a stale bearing.
+      const float adx = aim_n - current_ned_x_;
+      const float ady = aim_e - current_ned_y_;
+      const float adist = std::max(std::hypot(adx, ady), 1e-3f);
+      const float raw_bearing = std::atan2(ady, adx);
+      if (!bearing_valid_) {
+        cmd_bearing_ = raw_bearing;
+        bearing_valid_ = true;
+      } else {
+        const float max_turn = bearing_rate_limit_rad_s_ * TICK_SEC;
+        cmd_bearing_ = wrap_angle(cmd_bearing_ + std::clamp(
+          wrap_angle(raw_bearing - cmd_bearing_), -max_turn, max_turn));
+      }
+      const float bn = std::cos(cmd_bearing_);
+      const float be = std::sin(cmd_bearing_);
+
       // 5. The plan was clear when it was made. Re-check it against the
       //    costmap as it is NOW, out to the lookahead. This is what makes
       //    "never fly into a detected obstacle" true rather than hoped for.
+      //    Flying direct, the route is not being followed; the line that is
+      //    was tested in full above, and step 6 tests the step itself.
       float hn = 0.0f, he = 0.0f;
-      if (planned && !path_ahead_clear(lookahead_check_m_, &hn, &he)) {
-        transit_goal_sent_ = false;      // force an immediate replan
+      if (planned && !direct && !path_ahead_clear(lookahead_check_m_, &hn, &he)) {
+        request_replan();
         char why[160];
         std::snprintf(why, sizeof(why),
           "planned route is blocked at NED (%.1f, %.1f) — replanning", hn, he);
@@ -929,11 +1055,12 @@ private:
         return false;
       }
 
-      // 6. And the specific step about to be commanded.
-      float sn = current_ned_x_ + (aim_n - current_ned_x_);
-      float se = current_ned_y_ + (aim_e - current_ned_y_);
+      // 6. And the specific step about to be commanded: along the smoothed
+      //    direction, as far as the aim point.
+      const float sn = current_ned_x_ + bn * adist;
+      const float se = current_ned_y_ + be * adist;
       if (segment_blocked(current_ned_x_, current_ned_y_, sn, se, &hn, &he)) {
-        transit_goal_sent_ = false;
+        request_replan();
         char why[160];
         std::snprintf(why, sizeof(why),
           "next step crosses an obstacle at NED (%.1f, %.1f)", hn, he);
@@ -941,9 +1068,6 @@ private:
         return false;
       }
 
-      const float adx = aim_n - current_ned_x_;
-      const float ady = aim_e - current_ned_y_;
-      const float adist = std::max(std::hypot(adx, ady), 1e-3f);
       // Progress watchdog. Detouring means the distance to the goal legitimately
       // grows for a while, so distance alone cannot judge progress — but the
       // BEST distance achieved so far should keep improving. If it has not for
@@ -960,17 +1084,17 @@ private:
         return false;
       }
 
-      const float carrot = std::min(transit_speed_mps_ * TICK_SEC * 20.0f, adist);
-      publish_setpoint(current_ned_x_ + (adx / adist) * carrot,
-                       current_ned_y_ + (ady / adist) * carrot,
+      const float carrot = ramp_lead(std::min(transit_speed_mps_ * TICK_SEC * 20.0f, adist));
+      publish_setpoint(current_ned_x_ + bn * carrot,
+                       current_ned_y_ + be * carrot,
                        tgt_z,
-                       yaw_override ? *yaw_override : std::atan2(ady, adx));
+                       yaw_override ? *yaw_override : cmd_bearing_);
       blocked_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
       return true;
     }
 
     // Short leg, or use_nav2 deliberately disabled.
-    const float carrot = std::min(transit_speed_mps_ * TICK_SEC * 20.0f, dist);
+    const float carrot = ramp_lead(std::min(transit_speed_mps_ * TICK_SEC * 20.0f, dist));
     const float sn = current_ned_x_ + (dx / dist) * carrot;
     const float se = current_ned_y_ + (dy / dist) * carrot;
 
@@ -989,6 +1113,53 @@ private:
                      yaw_override ? *yaw_override : std::atan2(dy, dx));
     blocked_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
     return true;
+  }
+
+  static float wrap_angle(float a)
+  {
+    return static_cast<float>(std::remainder(a, 2.0 * M_PI));
+  }
+
+  // Grow the lead distance by at most carrot_ramp_m_s per tick, up to
+  // `full`. Shrinking is never limited (see the hold in fly_guided_leg).
+  float ramp_lead(float full)
+  {
+    lead_m_ = std::min(lead_m_ + carrot_ramp_m_s_ * TICK_SEC, full);
+    return lead_m_;
+  }
+
+  // Ask Nav2 for a fresh route because the current one is blocked, at most
+  // once per replan_min_interval_sec.
+  void request_replan()
+  {
+    const rclcpp::Time t = now();
+    if (last_forced_replan_.nanoseconds() == 0 ||
+        (t - last_forced_replan_).seconds() >= replan_min_interval_sec_) {
+      transit_goal_sent_ = false;
+      last_forced_replan_ = t;
+    }
+  }
+
+  // Every setpoint leaves this node through publish_setpoint or
+  // publish_land_setpoint, so limiting yaw here guarantees that no setpoint
+  // the mission sends ever steps the attitude reference. After a gap in
+  // setpoints (nothing commanded the aircraft) it re-seeds from the actual
+  // heading rather than slewing from a stale command.
+  float limit_yaw(float yaw)
+  {
+    if (!std::isfinite(yaw)) return yaw;
+    const rclcpp::Time t = now();
+    const double since = (t - last_yaw_cmd_time_).seconds();
+    if (!cmd_yaw_valid_ || since > 0.5) {
+      cmd_yaw_ = current_heading_;
+      cmd_yaw_valid_ = true;
+    }
+    const float max_step = yaw_rate_limit_rad_s_ *
+      static_cast<float>(std::clamp(since, 0.0, 2.0 * TICK_SEC));
+    cmd_yaw_ = wrap_angle(cmd_yaw_ + std::clamp(wrap_angle(yaw - cmd_yaw_),
+                                                -max_step, max_step));
+    last_yaw_cmd_time_ = t;
+    return cmd_yaw_;
   }
 
   void publish_offboard_mode(bool velocity = false)
@@ -1019,7 +1190,7 @@ private:
     msg.velocity[0] = NAN;
     msg.velocity[1] = NAN;
     msg.velocity[2] = vz;      // NED: positive is down
-    msg.yaw         = yaw;
+    msg.yaw         = limit_yaw(yaw);
     msg.timestamp   = get_clock()->now().nanoseconds() / 1000;
     setpoint_pub_->publish(msg);
   }
@@ -1032,7 +1203,7 @@ private:
     msg.position[0] = x;
     msg.position[1] = y;
     msg.position[2] = z;
-    msg.yaw         = yaw;
+    msg.yaw         = limit_yaw(yaw);
     msg.timestamp   = get_clock()->now().nanoseconds() / 1000;
     setpoint_pub_->publish(msg);
   }
@@ -1990,6 +2161,20 @@ private:
   double blocked_escape_sec_;
   float  escape_climb_m_, min_route_m_;
   double target_blocked_abort_sec_, no_progress_sec_;
+  // reference smoothing (see the parameters)
+  float  bearing_rate_limit_rad_s_, yaw_rate_limit_rad_s_, carrot_ramp_m_s_;
+  double replan_min_interval_sec_;
+  bool   bearing_valid_ = false;
+  float  cmd_bearing_ = 0.0f;     // smoothed direction of travel, rad from north
+  float  lead_m_ = 0.0f;          // current lead distance ahead of the aircraft
+  // where a guided leg aims
+  float  los_aim_max_m_;
+  bool   direct_when_clear_;
+  bool   direct_mode_ = false;    // flying the straight line, not the route
+  rclcpp::Time last_forced_replan_{0, 0, RCL_ROS_TIME};
+  bool   cmd_yaw_valid_ = false;
+  float  cmd_yaw_ = 0.0f;         // last yaw actually sent to PX4
+  rclcpp::Time last_yaw_cmd_time_{0, 0, RCL_ROS_TIME};
   rclcpp::Time target_blocked_since_{0, 0, RCL_ROS_TIME};
   float  best_dist_ = 1e9f;
   rclcpp::Time best_dist_at_{0, 0, RCL_ROS_TIME};

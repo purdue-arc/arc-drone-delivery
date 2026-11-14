@@ -112,6 +112,19 @@ RUN git clone --depth 1 -b v2.4.3 https://github.com/eProsima/Micro-XRCE-DDS-Age
     && ldconfig /usr/local/lib/ \
     && rm -rf /tmp/xrce-agent
 
+# Livox-SDK2 — native library the vendored livox_ros_driver2 links against
+# (liblivox_lidar_sdk_shared.so in /usr/local/lib). Pinned to the commit
+# released alongside the vendored driver; bump both together (see the
+# driver's VENDORED.md).
+ARG LIVOX_SDK2_COMMIT=08f523c930b2f0ba1e98a6afaa8d7476bf479908
+RUN git clone https://github.com/Livox-SDK/Livox-SDK2.git /tmp/livox-sdk2 \
+    && git -C /tmp/livox-sdk2 checkout ${LIVOX_SDK2_COMMIT} \
+    && cmake -S /tmp/livox-sdk2 -B /tmp/livox-sdk2/build -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build /tmp/livox-sdk2/build -j"$(nproc)" \
+    && cmake --install /tmp/livox-sdk2/build \
+    && ldconfig /usr/local/lib/ \
+    && rm -rf /tmp/livox-sdk2
+
 # rosdep init must run as root, update runs as user later
 RUN rosdep init || true
 

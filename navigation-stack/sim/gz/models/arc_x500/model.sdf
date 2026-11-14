@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  arc_x500: the delivery aircraft for Gazebo Harmonic SITL.
+
+  PX4's x500 quadrotor with the two sensors the mission depends on:
+
+    arc_gimbal   PX4's CGO3 gimbal and camera, 640x360. PX4 drives the pitch
+                 joint from its gimbal manager (airframe 4019, MNT_MODE_OUT 2),
+                 so gimbal_bridge's VehicleCommands work unchanged, and
+                 GstCameraSystem streams the camera on UDP 5600.
+    lidar        Livox Mid-360 stand-in. Same scan pattern, range and mount as
+                 the Gazebo Classic typhoon_h480 (see ../../../models/README.md
+                 for why it hangs under the airframe, inverted). Published on
+                 the fixed gz topic /arc/lidar/scan, which gz_lidar_bridge
+                 turns into /livox/points.
+
+  This is a STAND-IN, as the Typhoon was. The real aircraft is a Tarot T960
+  hexacopter, bigger and heavier than either. It is good for testing mission
+  logic, not for tuning flight dynamics.
+
+  The lidar <pose> must match mount_* in
+  vision_landing/launch/livox_mid360.launch.py, and the sensor as bolted to the
+  aircraft. scripts/check_lidar_mount.py checks the first two.
+
+  PX4 attaches to this model as airframe 4019 (gz_x500_gimbal): the x500's
+  mixer and tuning plus the gimbal parameters. Started by ../../run_sitl.sh.
+-->
+<sdf version="1.9">
+  <model name="arc_x500">
+    <include merge="true">
+      <uri>model://x500</uri>
+    </include>
+
+    <!-- Placement copied from PX4's x500_gimbal. -->
+    <include merge="true">
+      <uri>model://arc_gimbal</uri>
+      <pose>0 0 0.26 0 0 3.14</pose>
+    </include>
+    <joint name="GimbalAttachJoint" type="fixed">
+      <parent>base_link</parent>
+      <child>cgo3_mount_link</child>
+    </joint>
+
+    <!-- The lidar link sits exactly on base_link, so the sensor <pose> below
+         is the mount relative to base_link: the same numbers as the
+         base_link -> livox_frame transform in livox_mid360.launch.py. -->
+    <link name="lidar_link">
+      <pose relative_to="base_link">0 0 0 0 0 0</pose>
+      <inertial>
+        <!-- Mid-360: 265 g, hung 0.15 m below the airframe. -->
+        <pose>0 0 -0.15 0 0 0</pose>
+        <mass>0.265</mass>
+        <inertia>
+          <ixx>0.0002</ixx>
+          <iyy>0.0002</iyy>
+          <izz>0.0002</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <sensor name="lidar" type="gpu_lidar">
+        <!-- UNDER_DRONE mount, INVERTED: 0.15 m below base_link, rolled pi so
+             the Mid-360's mostly-upward -7..+52 deg cone looks down. -->
+        <pose>0 0 -0.15 3.14159265 0 0</pose>
+        <topic>/arc/lidar/scan</topic>
+        <update_rate>10</update_rate>
+        <always_on>1</always_on>
+        <visualize>false</visualize>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>360</samples>
+              <resolution>1</resolution>
+              <min_angle>-3.14159</min_angle>
+              <max_angle>3.14159</max_angle>
+            </horizontal>
+            <!-- Mid-360 vertical FOV: -7 deg .. +52 deg -->
+            <vertical>
+              <samples>32</samples>
+              <resolution>1</resolution>
+              <min_angle>-0.122</min_angle>
+              <max_angle>0.908</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <min>0.35</min>
+            <max>40.0</max>
+            <resolution>0.02</resolution>
+          </range>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.02</stddev>
+          </noise>
+        </lidar>
+      </sensor>
+    </link>
+    <joint name="lidar_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>lidar_link</child>
+    </joint>
+  </model>
+</sdf>

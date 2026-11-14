@@ -20,6 +20,13 @@ because `network_mode: host` (required for DDS discovery) and the X11 mount
 for GUI tools are Linux-native behaviors that aren't reliably supported on
 Docker Desktop for Mac/Windows.
 
+**ARM machine, or no Gazebo Classic?** Gazebo Classic has no ARM packages for
+Ubuntu 22.04. There is a Gazebo Harmonic setup alongside this one, in
+[navigation-stack/sim/gz/README.md](navigation-stack/sim/gz/README.md). It
+runs on x86 and ARM and needs no ROS on the host. It is newer and not yet the
+reference simulator, so read its status section first. This guide covers
+Classic.
+
 ## 1. Host packages
 
 ```bash

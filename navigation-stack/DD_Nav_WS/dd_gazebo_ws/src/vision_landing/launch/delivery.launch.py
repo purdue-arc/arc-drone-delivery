@@ -20,10 +20,13 @@ use_sim_time is FALSE throughout. PX4 over uXRCE-DDS does not publish /clock,
 so the ROS side runs on wall time; drone_nav's nav2_params.yaml ships
 use_sim_time: True, which would make every TF and scan look unusably stale.
 
-The lidar scan comes from gazebo_scan_bridge, which runs on the HOST against
-ROS 2 Humble (that is where the gazebo11 headers are) — start it separately:
-  source /opt/ros/humble/setup.bash && source <hostws>/install/setup.bash
-  ROS_DOMAIN_ID=0 ros2 run gazebo_scan_bridge gazebo_scan_bridge
+In SITL the lidar cloud comes from a bridge, started separately:
+  Gazebo Harmonic  gz_lidar_bridge, the `gz_lidar` compose service
+                   (`make up-sitl-gz` starts it).
+  Gazebo Classic   gazebo_scan_bridge, which runs on the HOST against ROS 2
+                   Humble (that is where the gazebo11 headers are):
+    source /opt/ros/humble/setup.bash && source <hostws>/install/setup.bash
+    ROS_DOMAIN_ID=0 ros2 run gazebo_scan_bridge gazebo_scan_bridge
 
 Fly a delivery:
   ros2 launch vision_landing delivery.launch.py \\
@@ -115,7 +118,8 @@ def generate_launch_description():
             'lidar', default_value='false',
             description='Start the real Livox Mid-360 driver, so '
                         '/livox/points comes from the sensor rather than from '
-                        'gazebo_scan_bridge. The mount transform is published '
+                        'a SITL bridge (gz_lidar_bridge or '
+                        'gazebo_scan_bridge). The mount transform is published '
                         'either way — SITL needs it too. OFF by default: '
                         'on the aircraft this normally runs as its own compose '
                         'service (`--profile lidar`) so it can be restarted '

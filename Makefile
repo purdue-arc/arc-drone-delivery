@@ -4,7 +4,8 @@
 #
 # Common workflows:
 #   make build               # build the arc-drone:jazzy image
-#   make up-sitl             # bring up containers for SITL mode
+#   make up-sitl             # bring up containers for SITL mode (Gazebo Classic)
+#   make up-sitl-gz          # same, against Gazebo Harmonic (sim/gz/run_sitl.sh)
 #   make up-hw               # bring up for hardware mode (Tarot T960 + Pixhawk)
 #   make start               # start the mission (arms and flies!)
 #   make abort               # abort into PX4 AUTO.LAND
@@ -41,7 +42,8 @@ help:
 	@echo ""
 	@echo "Build & lifecycle:"
 	@echo "  make build              Build arc-drone:jazzy image"
-	@echo "  make up-sitl            Start containers in SITL mode"
+	@echo "  make up-sitl            Start containers in SITL mode (Gazebo Classic)"
+	@echo "  make up-sitl-gz         Start containers in SITL mode (Gazebo Harmonic)"
 	@echo "  make up-hw              Start containers in hardware mode"
 	@echo "  make down               Stop all containers"
 	@echo "  make clean              Remove containers, volumes, dangling images"
@@ -86,6 +88,20 @@ up-sitl:
 	@echo "Fly it:           make start"
 	@echo "Stop everything:  make down"
 
+# Same stack against Gazebo Harmonic, plus the in-container lidar bridge
+# (the `gz` profile). PX4 + Harmonic run on the host via run_sitl.sh.
+.PHONY: up-sitl-gz
+up-sitl-gz:
+	@echo "==> Starting arc-drone in SITL mode (Gazebo Harmonic)"
+	@echo "    Make sure PX4 SITL is already running on the host:"
+	@echo "    navigation-stack/sim/gz/run_sitl.sh [apriltag_landing|purdue_campus]"
+	$(COMPOSE_SITL) --profile gz up -d
+	@echo ""
+	@echo "Watch mission:    make logs SVC=mission"
+	@echo "Watch lidar:      make logs SVC=gz_lidar"
+	@echo "Fly it:           make start"
+	@echo "Stop everything:  make down"
+
 .PHONY: up-hw
 up-hw:
 	@echo "==> Starting arc-drone in hardware mode"
@@ -98,8 +114,10 @@ up-hw:
 	@echo "Fly it:           make start MODE=hw"
 
 .PHONY: down
+# --profile '*' so profile-gated services (gz_lidar, lidar, offboard) stop
+# too; without it `down` leaves them running.
 down:
-	$(COMPOSE_ACTIVE) down
+	$(COMPOSE_ACTIVE) --profile '*' down
 
 .PHONY: clean
 clean: down

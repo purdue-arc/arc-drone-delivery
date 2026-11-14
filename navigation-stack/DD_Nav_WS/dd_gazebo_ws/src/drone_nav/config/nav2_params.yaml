@@ -282,7 +282,15 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       use_sim_time: false
-      robot_radius: 0.6
+      # A KEEP-OUT distance from every obstacle, not the airframe's size (0.6 m).
+      # Cells within it are INSCRIBED (99 on the published grid), which both the
+      # planner and every mission_controller check treat as blocked
+      # (obstacle_cost_threshold 90). inflation_radius alone cannot set this:
+      # it only adds a cost gradient beyond the inscribed ring, which the
+      # planner prefers to avoid but the mission's straight-line checks ignore.
+      # At 0.6 m, SITL flights passed 0.2-0.8 m from a 20 m building at up to
+      # 3.6 m/s. 2 m leaves room for GPS error on the aircraft.
+      robot_radius: 2.0
       # PERSISTENT, not rolling. This is the map of the whole delivery area and
       # it must not forget.
       #
@@ -381,7 +389,9 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0
-        inflation_radius: 0.65
+        # Must exceed robot_radius to have any effect: beyond the 2 m keep-out,
+        # routes are steered further from walls when there is room.
+        inflation_radius: 3.0
       always_send_full_costmap: True
   global_costmap_client:
     ros__parameters:

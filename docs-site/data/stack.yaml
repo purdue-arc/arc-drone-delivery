@@ -246,6 +246,16 @@ layers:
           sensor, mounted `under_drone` at `z = −0.15`, matching the
           aircraft.
         status: sim
+      - name: sim/gz (Gazebo Harmonic)
+        desc: >
+          The same mission on Gazebo Harmonic, alongside Classic: an x500
+          with the gimbal camera and Mid-360 stand-in (`arc_x500`), both
+          worlds converted, and `run_sitl.sh` to start PX4 against them.
+          Runs on ARM. Not yet the reference simulator.
+        status: sim
+      - name: gz_lidar_bridge
+        desc: "Harmonic counterpart of `gazebo_scan_bridge`: the gpu_lidar into `/livox/points`, stamped `livox_frame` in wall time. Runs in the container as the `gz_lidar` service, so the host needs no ROS."
+        status: sim
       - name: gazebo_apriltag
         desc: "Tag models and textures for the simulated landing pad."
         status: sim

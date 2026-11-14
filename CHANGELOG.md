@@ -110,6 +110,286 @@ PX4 AUTO.LAND instead of disarming.
 
 # Entries
 
+## 2026-11-08 — Straighter transit legs, and a real 2 m keep-out from buildings
+
+**In one sentence:** guided legs now fly straight lines wherever the costmap
+allows, and the global costmap now keeps the aircraft 2 m from obstacles
+rather than 0.6 m, after SITL showed every flight passing 0.2–0.8 m from a
+building.
+
+### What changed
+- **Line-of-sight aim** (`mission_controller.cpp`, `los_carrot`): on a planned
+  route the aircraft aims at the farthest route point, up to `los_aim_max_m`
+  (12 m, capped at `lookahead_check_m`), that it can reach in a straight clear
+  line, instead of the point 4 m ahead. Near a building the clear line
+  shortens and the aim falls back towards `path_lookahead_m`.
+- **Direct flight when clear** (`direct_when_clear`, default true): if the
+  straight line to the destination crosses nothing in the flight-level
+  costmap, the aircraft flies that line instead of the route. A route is still
+  required first, the line is re-tested every tick, and step 6 still checks
+  the step itself. At a transit height above every building the flight-level
+  costmap is empty, so the whole leg is one straight line. Mode changes are
+  logged.
+- **Global costmap keep-out** (`drone_nav/config/nav2_params.yaml`):
+  `robot_radius` 0.6 → **2.0 m** and `inflation_radius` 0.65 → **3.0 m**.
+  `robot_radius` sets the INSCRIBED ring, which is what the planner and every
+  mission check treat as blocked (`obstacle_cost_threshold` 90).
+  `inflation_radius` alone, the 2026-09-03 plan, only adds a cost gradient that
+  the planner prefers to avoid and the straight-line checks ignore.
+
+### Why
+The 2026-11-06 steering limits stopped heading steps but left a weave of a few
+degrees, caused by aiming 4 m ahead on a route Nav2 redraws every ~1.7 s.
+Measuring closest approach on the same flights then showed the margin problem:
+
+| SITL flight | closest to a building | speed there |
+|---|---|---|
+| old code | 0.8 m | 3.2 m/s |
+| steering limits | 0.3 m | 3.6 m/s |
+| + line-of-sight and direct, 0.6 m keep-out | 0.2 m | 0.2 m/s (holding) |
+| + 2 m keep-out | **1.8 m** | 3.7 m/s |
+
+Line-of-sight aim on its own made this worse: a straight line that grazes the
+edge of the inscribed ring passes the check, so shortcuts hugged the 0.6 m
+margin. It is only safe together with the wider keep-out.
+
+### Hardware impact
+**Yes.** The aircraft will hold 2 m (centre) from obstacles, refuse a delivery
+point within 2 m of one, and need gaps wider than about 4 m to route through.
+It will also fly straight lines across open ground rather than following
+Nav2's route exactly. Not yet flown on hardware.
+
+### How it was verified
+Built in the container; `test_mission_math` passes (18 tests). Campus
+deliveries in Gazebo Harmonic SITL (GPU renderer, open-ground target 350 m
+out behind a 20 m building), recorded and compared:
+
+| | steering limits only | + line-of-sight, direct, 2 m keep-out |
+|---|---|---|
+| median sideways drift over 10 s | 0.27 m | **0.06 m** |
+| 90th pct heading swing within 1 s | 11.5 deg | **5.7 deg** |
+| commanded turn reversals | 0.66 /s | **0.16 /s** |
+| mean cruise speed | 3.1 m/s | 3.1 m/s |
+
+Both completed the mission; the last landed 6 cm from the pad centre.
+
+### Risks still open
+- **1.8 m is under the 2 m target**, at full cruise speed: the 0.5 m grid
+  blurs the boundary. With GPS error on the aircraft, a 3 m keep-out or
+  slowing near obstacles is worth considering before hardware.
+- One flight per configuration. The 10-run gate has not been run.
+- Direct flight trusts unobserved costmap cells as free, like the planner.
+  A building beyond lidar range ends direct flight only when it is seen.
+- The high-altitude case (transit above every building, one straight line)
+  has not been flown.
+
+## 2026-11-06 — The steering limits from 2026-09-03 are now actually in the code
+
+**In one sentence:** the four reference limits the 2026-09-03 entry credits
+with stopping the tumble were written up but never committed; they are in
+`mission_controller.cpp` now, and in SITL they remove every step in the
+commanded heading while leaving the mission's behaviour otherwise unchanged.
+
+### What changed
+All in `vision_landing/src/mission_controller.cpp`, implemented as the
+2026-09-03 entry describes them:
+- **`bearing_rate_limit_deg_s`** (45 deg/s) on the commanded direction of
+  travel in `fly_guided_leg`, applied before steps 5 and 6. Step 6 now checks
+  the segment along the smoothed direction, out to the aim point, so the check
+  validates the direction actually flown. The filter keeps advancing on ticks
+  that end in a hold.
+- **`replan_min_interval_sec`** (2.0 s) on replans forced by a blocked route,
+  replacing the unconditional `transit_goal_sent_ = false` in steps 5 and 6.
+- **`yaw_rate_limit_deg_s`** (60 deg/s) inside `publish_setpoint` and
+  `publish_land_setpoint`, so it covers every state. After a gap in
+  setpoints it re-seeds from the actual heading.
+- **`carrot_ramp_m_s`** (2.0 m/s): the lead distance grows at that rate and
+  drops to zero the instant a hold begins.
+- `transition()` resets the direction filter and the lead, so each leg starts
+  from its own route and from rest. It previously reset nothing, although
+  `docs-site/data/stack.yaml` says per-leg guard state resets there.
+
+### Why
+`git log -S` finds `bearing_rate_limit_deg_s`, `replan_min_interval_sec`,
+`yaw_rate_limit_deg_s` and `carrot_ramp_m_s` only ever in `CHANGELOG.md`, and
+`stack.yaml` says direction, yaw and lead are rate-limited. The code had none
+of it, so the aircraft would have flown without the limits that entry says
+ended the tumbles. Found while investigating the transit wiggle on Harmonic.
+
+### Hardware impact
+**Yes: this runs on the aircraft.** It restores limits the team believed were
+already flying. Not yet flown on hardware. All four are ROS parameters with
+the documented defaults; no launch file sets them.
+
+### How it was verified
+Built in the container; `test_mission_math` passes (18 tests). One full
+campus delivery in Gazebo Harmonic SITL (GPU renderer, open-ground target
+350 m out behind a 20 m building), recorded and compared with the same flight
+on the old code:
+
+| | before | after |
+|---|---|---|
+| largest commanded heading change in one 0.05 s tick | 147.4 deg | **3.0 deg** |
+| commanded heading ticks turning faster than 120 deg/s | 44 | **0** |
+| worst actual heading swing within 1 s | 134.1 deg | **59.4 deg** |
+| typical (median) actual heading swing within 1 s | 2.6 deg | 2.8 deg |
+| median sideways drift over 10 s | 0.28 m | 0.25 m |
+
+The mission completed both times; after the change it landed 5 cm from the
+pad centre.
+
+### Risks still open
+- **The small transit weave remains.** It is a few degrees, about 0.7 turn
+  reversals per second, well under both limits, and comes mostly from Nav2
+  route updates every 1.7 s nudging a 4 m aim point. These limits stop steps;
+  they were never meant to smooth that.
+- **The rest of the 2026-09-03 entry is not in the code either:** the global
+  costmap is still 900 m at 0.5 m with 0.65 m inflation, `path_stale_sec` is
+  5 s, `expected_planner_frequency` is 20, `bag_dir` still defaults to the
+  fixed `mission_bag` (so recording stops after the first flight), and
+  `drone_slam`'s `MAP_SIZE_M` is 200 m. Only the `require_costmap_to_fly`
+  launch argument landed.
+
+## 2026-10-03 — A fresh checkout's Docker workspace builds again
+
+**In one sentence:** the container workspace build failed on any clean
+checkout because the vendored Livox driver was missing its manifest and the
+image was missing the Livox SDK it links against; both are now in place.
+
+### What changed
+- **`livox_ros_driver2/package.xml` is now actually committed.** Its
+  `VENDORED.md` says it is, but upstream's `.gitignore` lists `package.xml`, so
+  the copy never reached git. That line is removed from the driver's
+  `.gitignore` and `package.xml` is a copy of `package_ROS2.xml`.
+- **`docker/Dockerfile.jazzy` builds Livox-SDK2** at commit
+  `08f523c930b2f0ba1e98a6afaa8d7476bf479908`, the pin `VENDORED.md` already
+  records. The driver's CMake requires `liblivox_lidar_sdk_shared.so` in
+  `/usr/local/lib` and stops without it.
+
+### Why
+Without these, colcon stops at `livox_ros_driver2` and aborts every other
+package, so no container starts: SITL (Classic or Harmonic) and hardware
+alike. Machines with an older workspace overlay never rebuilt and did not
+notice.
+
+### Hardware impact
+Positive: the hardware `lidar` service needs exactly this driver and SDK.
+Nothing about how the driver is launched or configured changed.
+
+### How it was verified
+`make build` on a clean image, then a first-time workspace build in the
+`mission` and `gz_lidar` containers.
+
+## 2026-10-03 — The simulation now also runs on Gazebo Harmonic
+
+**In one sentence:** the delivery mission can now be simulated on Gazebo
+Harmonic as well as Gazebo Classic. Harmonic runs on ARM machines, which
+Classic does not, and needs no ROS installed outside Docker. Classic stays the
+reference until Harmonic has earned it.
+
+### What changed
+- **New aircraft for Harmonic**, `navigation-stack/sim/gz/models/arc_x500/`:
+  PX4's x500 quadrotor with PX4's CGO3 gimbal camera (copied as `arc_gimbal`
+  with the camera at 640x360, matching the SITL intrinsics the landing
+  pipeline defaults to) and the Mid-360 stand-in, with the same scan pattern,
+  range and inverted under-drone mount as the Classic Typhoon.
+- **Both worlds converted**, `navigation-stack/sim/gz/worlds/`:
+  `apriltag_landing.sdf` and `purdue_campus.sdf`. The 26 campus buildings are
+  copied unchanged; ground, sun and physics are inline (Harmonic has no
+  `model://ground_plane`); the tag texture is a PBR albedo map, not an OGRE
+  script. The aircraft is placed in the world on the pad.
+- **`navigation-stack/sim/gz/run_sitl.sh`** starts Gazebo on one of those
+  worlds and PX4 (airframe 4019) attached to the aircraft. Nothing
+  inside the gitignored `PX4-Autopilot/` is modified. It sets the SITL-only
+  `NAV_DLL_ACT 0` / `COM_RC_IN_MODE 4` once PX4 has booted, so SITL arms
+  without a ground station.
+- **New package `gz_lidar_bridge`** (`DD_Nav_WS/dd_gazebo_ws/src/`): the
+  Harmonic counterpart of `gazebo_scan_bridge`. It publishes `/livox/points`
+  in `livox_frame` with wall-clock stamps and drops no-hit and self returns.
+  It builds and runs in the container. Both sides set `GZ_PARTITION=arc_sitl`:
+  gz-transport's default partition contains the username (`arc` in the
+  container, the host user outside), so without it the container bridge
+  never received a scan, silently.
+- **New compose service `gz_lidar`** (profile `gz`) in
+  `docker-compose.sitl.yml`, and **`make up-sitl-gz`**, which starts the stack
+  with it. `make down` now passes `--profile '*'`, so it also stops
+  profile-gated services (`gz_lidar`, `lidar`, `offboard`), which it
+  previously left running.
+- **`scripts/check_lidar_mount.py`** now checks the Harmonic model too (four
+  files).
+- PX4 version recorded in `PX4-AUTOPILOT.md`: `main` at
+  `09cb22f7996362a58aef3426b57dda8b67151cd9` (2026-03-17). No PX4 release
+  matches the vendored `px4_msgs` (v1.16.2 was tried first: its
+  `VehicleStatus` is v1, the mission's is v2, so no telemetry arrived).
+- `run_sitl.sh` runs PX4 without its interactive shell (`-d`) when stdin is
+  not a terminal; otherwise the shell spins on EOF and fills the disk.
+- `docker-compose.yml` passes `calib_file:=` only when `CALIB_FILE` is set.
+  ROS 2 Jazzy rejects an empty launch argument, so the mission container
+  exited on start whenever no calibration was given (every SITL run).
+- **`gimbal_bridge` now claims gimbal control** (`DO_GIMBAL_MANAGER_CONFIGURE`
+  -2/-2) before each pitch setpoint. PX4's gimbal manager denies `PITCHYAW`
+  from anyone not in primary control, and only gives control to the autopilot
+  by itself if a `ROI_NONE` happens to be published. On this PX4 none was, so
+  control stayed 0/0, every tilt was denied, the camera looked at the horizon
+  and the search never found the pad.
+- Docs: `sim/gz/README.md` (new), pointers in `SETUP.md`,
+  `PX4-AUTOPILOT.md`, `docs-site/data/stack.yaml`, `delivery.launch.py`.
+
+### Why
+Gazebo Classic reached end of life in January 2025 and has no ARM packages for
+Ubuntu 22.04, so anyone on an Apple-silicon VM could not run the simulation at
+all. Its lidar bridge also tied every SITL machine to a host install of ROS 2
+Humble.
+
+### Hardware impact
+One change runs on the aircraft: `gimbal_bridge` now claims primary gimbal
+control. The aircraft uses the same gimbal manager input (`MNT_MODE_IN 4`), so
+it had the same latent failure, depending on whether a `ROI_NONE` arrived
+first. A side effect: while the mission is commanding the gimbal, it takes
+control back from a ground station within a second. Not yet tested on the
+aircraft. Nothing else on the aircraft, its parameters or its launch path
+changed. The Harmonic aircraft is an x500 quadrotor, a stand-in in the same way the Typhoon
+was. Neither is the Tarot T960.
+
+### How it was verified
+On an ARM (aarch64) Ubuntu 22.04 VM with no GPU, Gazebo Sim 8.15. The first
+four points were checked at PX4 v1.16.2, the mission flight at `09cb22f799`:
+- **One full search-and-land mission on `apriltag_landing`, in Docker**
+  (`make up-sitl-gz`, `make start`): armed in OFFBOARD, took off to 5 m, found
+  the tag on the first scan at level 0 (gimbal -80 deg), flew to it and landed
+  9 cm from the pad centre. Before the `gimbal_bridge` fix the same flight
+  searched for 180 s and failsafe-landed; the gimbal reported 0 deg pitch.
+- Both worlds and the aircraft pass `gz sdf -k`. Both worlds load. PX4 passes
+  preflight and reports "Ready for takeoff!" with no manual commands.
+  `commander takeoff` climbs to 2.5 m and to 10 m in `apriltag_landing`. On
+  `purdue_campus` all 26 buildings load and GPS reads the pad coordinates.
+- `gz_lidar_bridge`, built on the host against Jazzy, publishes
+  `/livox/points` in `livox_frame` with wall-clock stamps: ~1,770 points per
+  scan on the pad, ~7,200 at 10 m. It ran at ~6.7 Hz, not 10, because this
+  machine runs the simulation slower than real time. In the container it
+  received nothing until `GZ_PARTITION` matched; with it, 8.5 Hz.
+- The camera streams 640x360 H.264 on UDP 5600. A gimbal command sent the way
+  `gimbal_bridge` sends it (NaN rates) pitches the camera to -89 deg, and the
+  tag is visible directly below from 10 m.
+- `check_lidar_mount.py` reports OK on all four files and catches a 3 cm
+  change in the new model.
+
+### Risks still open
+- **One mission run is not the ten-run gate.** Search-and-land passed once on
+  `apriltag_landing`. The delivery leg, Nav2 routing on `purdue_campus` and
+  the failsafes are untested on Harmonic. Treat Harmonic results as
+  provisional until the gate passes on it.
+- Once, before the gimbal fix, the camera stream did not start at all after a
+  simulator restart (the plugin never opened its socket); it started on the
+  next restart. Not reproduced since. If the detector logs "waiting for the
+  first frame" and nothing after, restart `run_sitl.sh`.
+- Nobody has watched the lidar see a campus building. The buildings are
+  `<polyline>` extrusions; they load, but no flight has gone near one.
+- The x500 is a quadrotor; the Typhoon and the real aircraft are hexacopters.
+  Expect different wind response and different control margins.
+- `px4-gimbal test` sends zero rates, and PX4's Gazebo gimbal then holds its
+  current angle. It looks broken but is not. See `sim/gz/README.md`.
+
 ## 2026-09-03 (later) — FAST-LIO2: the aircraft can now check where it thinks it is
 
 **In one sentence:** FAST-LIO2, a lidar-inertial SLAM system, is now part of

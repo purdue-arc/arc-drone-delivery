@@ -28,6 +28,13 @@ PX4_SITL_WORLD=apriltag_landing PX4_HOME_ALT=5 \
   make px4_sitl gazebo-classic_typhoon_h480
 ```
 
+SITL, Gazebo Harmonic (see [`sim/gz/README.md`](sim/gz/README.md)):
+
+```bash
+make px4_sitl                                   # once, from PX4-Autopilot/
+../sim/gz/run_sitl.sh apriltag_landing          # or purdue_campus
+```
+
 ## Which version — and why it matters more than it looks
 
 The mission controller subscribes to PX4 telemetry by topic name. PX4 v1.16
@@ -76,8 +83,8 @@ git rev-parse HEAD
 
 | Field | Value |
 |---|---|
-| Tag / release | _record it here_ |
-| Commit | _record it here_ |
+| Tag / release | none: `main` at 2026-03-17, for the Gazebo Harmonic SITL (recorded 2026-10-03). No release matches `px4_msgs`: v1.16.2 and v1.17.0 publish `VehicleStatus` v1, v1.18 publishes v4, and the vendored `px4_msgs` is v2. This is the newest commit at which every message the mission uses matches the vendored `px4_msgs` field for field (except `SensorGps`, see `px4_msgs/PX4_SYNC.md`). The tree the Classic flights used was never recorded. |
+| Commit | `09cb22f7996362a58aef3426b57dda8b67151cd9` |
 | Publishes versioned topic names | **mixed** — see above (verified against running SITL) |
 | `px4_msgs` in this repo matches its message definitions | yes (verified byte-for-byte for the messages the mission uses) |
 

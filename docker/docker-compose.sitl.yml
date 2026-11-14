@@ -1,7 +1,14 @@
 # docker/docker-compose.sitl.yml
 # ----------------------------------------------------------------------------
 # SITL overlay — used WITH docker-compose.yml when running against PX4 SITL
-# and Gazebo Harmonic on the host machine.
+# on the host machine, in either simulator:
+#
+#   Gazebo Classic   PX4 via `make px4_sitl gazebo-classic_typhoon_h480`; the
+#                    lidar comes from gazebo_scan_bridge, run on the host
+#                    against ROS 2 Humble. `make up-sitl`.
+#   Gazebo Harmonic  PX4 via navigation-stack/sim/gz/run_sitl.sh; the lidar
+#                    comes from the `gz_lidar` service below, in the
+#                    container. `make up-sitl-gz`.
 #
 # Assumes PX4 SITL runs on the host (not in a container) because Gazebo
 # needs GPU access and is heavy to containerize. The base compose's
@@ -21,13 +28,60 @@
 services:
 
   # --------------------------------------------------------------------------
+  # Gazebo Harmonic lidar: the arc_x500's Mid-360 stand-in -> /livox/points,
+  # stamped livox_frame in ROS wall time, exactly as the real driver
+  # publishes. Only for Harmonic, so behind the `gz` profile; `make
+  # up-sitl-gz` enables it. See navigation-stack/sim/gz/README.md.
+  #
+  # GZ_IP and GZ_PARTITION must match the host side (run_sitl.sh sets
+  # 127.0.0.1 and arc_sitl). gz-transport discovery over host networking only
+  # finds peers on the same interface, and only in the same partition, whose
+  # default includes the username: `arc` here, someone else on the host.
+  # --------------------------------------------------------------------------
+  gz_lidar:
+    image: arc-drone:jazzy
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.jazzy
+      args:
+        USER_UID: ${USER_UID:-1000}
+        USER_GID: ${USER_GID:-1000}
+        ROS_DISTRO: jazzy
+    network_mode: host
+    ipc: host
+    profiles: ["gz"]
+    container_name: arc_gz_lidar
+    environment:
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+      RMW_IMPLEMENTATION: ${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
+      ROS_DISTRO: jazzy
+      GZ_IP: 127.0.0.1
+      GZ_PARTITION: ${GZ_PARTITION:-arc_sitl}
+      ARC_REQUIRE_PKG: gz_lidar_bridge
+    volumes:
+      - ../:/home/arc/arc_ws:rw
+    restart: unless-stopped
+    stop_grace_period: 3s
+    # GZ_RENDER_ENGINE must be the value run_sitl.sh was started with (ogre2
+    # by default, ogre for a GPU on a UTM VM): ogre's lidar rays are one
+    # sample off and the bridge corrects that only when told.
+    command:
+      - ros2
+      - run
+      - gz_lidar_bridge
+      - gz_lidar_bridge
+      - --ros-args
+      - -p
+      - render_engine:=${GZ_RENDER_ENGINE:-ogre2}
+
+  # --------------------------------------------------------------------------
   # WASD offboard sim (px4_offboard velocity_control FSM node).
   # Not started by default — opt in with --profile wasd, or `docker compose
   # run offboard` for a one-off. Talks to PX4 via the xrce_agent service.
   #
   # Host side (run first — the compose xrce_agent service provides the agent):
-  #   cd navigation-stack/PX4-Autopilot && \
-  #     PX4_GZ_MODEL_POSE='0,0,0.3,0,0,0' make px4_sitl gz_typhoon_h480
+  #   navigation-stack/sim/gz/run_sitl.sh
+  # (PX4 has no gz_typhoon_h480; the Harmonic aircraft is arc_x500.)
   # Teleop (interactive, needs a tty):
   #   docker compose -f docker-compose.yml -f docker-compose.sitl.yml \
   #     run --rm --no-deps offboard ros2 run px4_offboard control

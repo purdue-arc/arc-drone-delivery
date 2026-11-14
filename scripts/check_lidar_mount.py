@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Check that the lidar mount pose agrees everywhere it is written down.
 
-The Mid-360 mount is recorded in three places:
+The Mid-360 mount is recorded in four places:
 
-  navigation-stack/sim/models/typhoon_h480.sdf.jinja   (the template, the source)
+  navigation-stack/sim/models/typhoon_h480.sdf.jinja   (Gazebo Classic template, the source)
   navigation-stack/sim/models/typhoon_h480.sdf         (generated from it)
+  navigation-stack/sim/gz/models/arc_x500/model.sdf    (Gazebo Harmonic aircraft)
   .../vision_landing/launch/livox_mid360.launch.py     (mount_* defaults, the TF)
 
 The launch file says of them: "This MUST match the sensor pose in
 typhoon_h480.sdf ... Nothing checks that; a mismatch puts every obstacle in
 the wrong place and says nothing." This is the thing that checks it.
 
-Exit 0 and print OK when all three agree within TOLERANCE; otherwise print a
+Exit 0 and print OK when all four agree within TOLERANCE; otherwise print a
 table of mismatches and exit 1. Exit 2 if a file cannot be read or parsed.
 
 Usage:
@@ -27,6 +28,7 @@ REPO = Path(__file__).resolve().parent.parent
 MODELS = REPO / 'navigation-stack' / 'sim' / 'models'
 SDF_JINJA = MODELS / 'typhoon_h480.sdf.jinja'
 SDF = MODELS / 'typhoon_h480.sdf'
+GZ_SDF = REPO / 'navigation-stack' / 'sim' / 'gz' / 'models' / 'arc_x500' / 'model.sdf'
 LAUNCH = (REPO / 'navigation-stack' / 'DD_Nav_WS' / 'dd_gazebo_ws' / 'src' /
           'vision_landing' / 'launch' / 'livox_mid360.launch.py')
 
@@ -127,6 +129,8 @@ def main():
         sources = {
             SDF_JINJA.name: read_sdf_pose(SDF_JINJA),
             SDF.name: read_sdf_pose(SDF),
+            # Every model file is called model.sdf, so name it by its model.
+            f'{GZ_SDF.parent.name}/{GZ_SDF.name}': read_sdf_pose(GZ_SDF),
             LAUNCH.name: read_launch_mount(LAUNCH),
         }
     except CheckError as e:
