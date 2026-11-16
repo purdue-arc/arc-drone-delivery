@@ -1,7 +1,0 @@
-﻿Nombre,Description
-drone_telemetry,Documents the physical attributes of the drone at a specific point in time (time series table)
-flights,"Flights which drones have made, whether they be for orders or not."
-orders,Orders made by users. Can be linked to multiple flights
-users,Users with varying permissions
-drones,Drones in the drone delivery operation fleet
-vendors,

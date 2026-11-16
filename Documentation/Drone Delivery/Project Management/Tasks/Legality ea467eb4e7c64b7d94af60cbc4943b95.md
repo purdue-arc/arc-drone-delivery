@@ -1,4 +1,0 @@
-# Legality
-
-Sub-item: Do we need a part 107 pilot? NO (Do%20we%20need%20a%20part%20107%20pilot%20NO%205d07e695bc6640229f356e4253d2d043.md), Operating in Purdue airport airspace (Operating%20in%20Purdue%20airport%20airspace%20ea6b467fa1074ee48aa77471a8a025c4.md), Operating drones without line of sight (Operating%20drones%20without%20line%20of%20sight%207f397a137b01406f98666d8031c5b90d.md), How to navigate with other drones in airspace (How%20to%20navigate%20with%20other%20drones%20in%20airspace%200c4554581ec24f899dc4b9141cee215c.md), Certifying a drone to fly over people/cars (Certifying%20a%20drone%20to%20fly%20over%20people%20cars%20bf15c05297d942cc8bc72ff64e3fc1cd.md), Part 135 for package delivery drones (Part%20135%20for%20package%20delivery%20drones%20061f220e47d143e383b7dfe7c5a54bb1.md)
-👥 Teams: Untitled (https://www.notion.so/7fa28fe73f34495490534767a824b397?pvs=21)
