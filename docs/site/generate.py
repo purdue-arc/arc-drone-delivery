@@ -3,7 +3,7 @@
 Builds the three "deep-dive" docs pages (Software Stack Reference, Flight
 Readiness Review, Flight Software Logbook) plus an index, as static HTML,
 from CHANGELOG.md in the repo root and the structured data files in
-docs-site/data/.
+docs/site/data/.
 
 What's fully automatic (needs no human judgment, just parses the file):
   - The Logbook's entries, subsystem status grid and blocking list — all
@@ -15,8 +15,8 @@ What's fully automatic (needs no human judgment, just parses the file):
 
 What still needs a person (or Claude, asked to do it) to edit, because it's
 judgment rather than parsing — architecture inventory and audit findings:
-  - docs-site/data/stack.yaml   (Software Stack Reference)
-  - docs-site/data/readiness.yaml (Flight Readiness Review's findings/gates)
+  - docs/site/data/stack.yaml   (Software Stack Reference)
+  - docs/site/data/readiness.yaml (Flight Readiness Review's findings/gates)
 
 Either way: editing any of CHANGELOG.md, stack.yaml or readiness.yaml and
 pushing rebuilds the live site within a minute or two via
@@ -38,24 +38,24 @@ from pathlib import Path
 try:
     import yaml
 except ImportError:
-    sys.exit("Missing dependency 'PyYAML'. Run: pip install -r docs-site/requirements.txt")
+    sys.exit("Missing dependency 'PyYAML'. Run: pip install -r docs/site/requirements.txt")
 
 try:
     import markdown as md
 except ImportError:
-    sys.exit("Missing dependency 'Markdown'. Run: pip install -r docs-site/requirements.txt")
+    sys.exit("Missing dependency 'Markdown'. Run: pip install -r docs/site/requirements.txt")
 
 try:
     from jinja2 import Environment, FileSystemLoader, select_autoescape
 except ImportError:
-    sys.exit("Missing dependency 'Jinja2'. Run: pip install -r docs-site/requirements.txt")
+    sys.exit("Missing dependency 'Jinja2'. Run: pip install -r docs/site/requirements.txt")
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPT_DIR.parent
+REPO_ROOT = SCRIPT_DIR.parents[1]  # this script lives in docs/site/
 DEFAULT_CHANGELOG = REPO_ROOT / "CHANGELOG.md"
 HUB_FILENAME = "drone_delivery_hub.html"
-DEFAULT_HUB = REPO_ROOT / HUB_FILENAME
+DEFAULT_HUB = SCRIPT_DIR / HUB_FILENAME
 DATA_DIR = SCRIPT_DIR / "data"
 TEMPLATES_DIR = SCRIPT_DIR / "templates"
 DEFAULT_OUT = SCRIPT_DIR / "dist"

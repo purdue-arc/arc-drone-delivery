@@ -32,7 +32,7 @@ layers:
     name: "Operator & ground"
     what: "What a human touches. Runs on a laptop or phone, never on the aircraft."
     components:
-      - name: operations-website
+      - name: operations_website/
         desc: >
           Web operations dashboard. A JS monorepo (npm workspaces +
           `symlink-dir`) whose one package is `admin-dashboard`: **Solid.js**
@@ -41,7 +41,7 @@ layers:
           (`@nhost/nhost-js` + `@merged/solid-apollo`) as the GraphQL/Postgres
           backend. CesiumJS provides the 3D map view.
         status: hold
-      - name: streaming/
+      - name: docs/hardware/zed_streaming/
         desc: >
           **MediaMTX** in Docker, republishing the ZED camera feed as
           RTSP/WebRTC/HLS so it can be watched in VLC or a browser. Separate
@@ -261,19 +261,19 @@ layers:
     name: "Research & prototypes"
     what: "Standalone work, not part of any running configuration."
     components:
-      - name: path-planning
-        desc: "C++ implementations of A*, D* and Dijkstra, plus the OSM extract the simulation world and both delivery routes are derived from."
+      - name: experimental/path_planning/
+        desc: "C++ implementations of A*, D* and Dijkstra. (The OSM extract the simulation world and both delivery routes are derived from lives in navigation-stack/Path_Planning/worlds/.)"
         status: hold
-      - name: obstacle-avoidance
+      - name: experimental/realsense_obstacle_avoidance/
         desc: "Intel RealSense obstacle detection, C++ / Visual Studio, Windows. Predates the Livox decision."
         status: hold
-      - name: octree-generator
+      - name: experimental/octree_generator/
         desc: "Python scripts building octree representations from OSM data."
         status: hold
-      - name: avoidance-viz
+      - name: experimental/avoidance_viz/
         desc: "Visualisation tool for checking avoidance behaviour offline."
         status: hold
-      - name: onboarding
+      - name: docs/onboarding/
         desc: "Tutorial material for new members: git, ROS 2 basics, Gazebo, publishers and subscribers."
         status: hold
 

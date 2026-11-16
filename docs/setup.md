@@ -2,8 +2,8 @@
 
 Day-zero guide: a blank Ubuntu 22.04 machine to a flying SITL mission. This
 covers *getting the stack running*; for what the stack does and why, see
-[CHANGELOG.md](CHANGELOG.md) (current flight status) and
-[docker/README.md](docker/README.md) (architecture). New to Git, ROS 2, or
+[CHANGELOG.md](../CHANGELOG.md) (current flight status) and
+[docker/README.md](../docker/README.md) (architecture). New to Git, ROS 2, or
 Gazebo entirely? Start with [onboarding/README.md](onboarding/README.md)
 first — it's a from-scratch tutorial, not specific to this repo.
 
@@ -63,7 +63,7 @@ currently the only package that's a real submodule.
 `navigation-stack/PX4-Autopilot/` is a ~4 GB upstream tree and is
 gitignored — you clone it yourself. Full detail (including why the exact
 version matters for topic names) is in
-[navigation-stack/PX4-AUTOPILOT.md](navigation-stack/PX4-AUTOPILOT.md);
+[navigation-stack/PX4-AUTOPILOT.md](../navigation-stack/PX4-AUTOPILOT.md);
 short version:
 
 ```bash
@@ -151,7 +151,7 @@ make abort
 - **This is a monorepo, not a ROS workspace** — there's no top-level `src/`.
   Don't run a bare `colcon build` from the repo root; it finds nothing. The
   container builds into `/home/arc/build_ws` inside itself via
-  `entrypoint.sh`. See [docker/README.md](docker/README.md) for the package
+  `entrypoint.sh`. See [docker/README.md](../docker/README.md) for the package
   layout.
 - **PX4 topic names are a mixed bag** — some publish with a version suffix
   (`/fmu/out/vehicle_status_v2`), some don't
@@ -173,10 +173,10 @@ make abort
 | Question | Doc |
 |---|---|
 | New to Git/ROS 2/Gazebo entirely? | [onboarding/README.md](onboarding/README.md) |
-| Full architecture, hardware (Jetson/Tarot) setup | [docker/README.md](docker/README.md) |
-| Which PX4 version/topics this is built against | [navigation-stack/PX4-AUTOPILOT.md](navigation-stack/PX4-AUTOPILOT.md) |
+| Full architecture, hardware (Jetson/Tarot) setup | [docker/README.md](../docker/README.md) |
+| Which PX4 version/topics this is built against | [navigation-stack/PX4-AUTOPILOT.md](../navigation-stack/PX4-AUTOPILOT.md) |
 | Mission FSM behavior (search, landing, failsafes) | `navigation-stack/DD_Nav_WS/dd_gazebo_ws/src/vision_landing/README.md` |
-| Current flight status, what's blocking a real flight | [CHANGELOG.md](CHANGELOG.md) |
+| Current flight status, what's blocking a real flight | [CHANGELOG.md](../CHANGELOG.md) |
 
 Flight status moves fast — check `CHANGELOG.md` rather than assuming
 anything here about readiness; as of writing, the full mission flies clean

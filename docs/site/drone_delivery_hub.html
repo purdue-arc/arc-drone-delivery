@@ -551,7 +551,7 @@
       <div>
         <h2>The three deep-dive documents</h2>
         <div class="trace"><div class="node"></div><div class="ln"></div></div>
-        <p>Live pages, built by <code>docs-site/</code> and deployed by GitHub Actions on every push to <code>CHANGELOG.md</code>. They are not private artifacts anymore. Each one goes much further than this page in its own direction; see <code>docs-site/README.md</code> for how the automation works.</p>
+        <p>Live pages, built by <code>docs/site/</code> and deployed by GitHub Actions on every push to <code>CHANGELOG.md</code>. They are not private artifacts anymore. Each one goes much further than this page in its own direction; see <code>docs/site/README.md</code> for how the automation works.</p>
         <div class="linkgrid">
           <div class="linkcard">
             <div class="lc-top"><span class="lc-name">Software Stack Reference</span></div>
@@ -588,7 +588,7 @@
       <div>
         <h2>Straight to the repo</h2>
         <div class="trace"><div class="node"></div><div class="ln"></div></div>
-        <div class="config-note">These links point at GitHub's blob viewer for each file, set by the <code>REPO_BASE</code> constant near the top of the <code>&lt;script&gt;</code> block at the bottom of this file. This page is published as part of <code>docs-site/dist/</code>, which doesn't contain the repo's actual files. Only relative links to files that exist right there in <code>dist/</code> would work, so these go straight to GitHub instead. <code>DOCS_BASE</code>, next to it, points at the GitHub Pages URL once <code>docs-site/</code>'s workflow has deployed, so the three cards above link somewhere real.</div>
+        <div class="config-note">These links point at GitHub's blob viewer for each file, set by the <code>REPO_BASE</code> constant near the top of the <code>&lt;script&gt;</code> block at the bottom of this file. This page is published as part of <code>docs/site/dist/</code>, which doesn't contain the repo's actual files. Only relative links to files that exist right there in <code>dist/</code> would work, so these go straight to GitHub instead. <code>DOCS_BASE</code>, next to it, points at the GitHub Pages URL once <code>docs/site/</code>'s workflow has deployed, so the three cards above link somewhere real.</div>
         <ul class="repolinks" id="repo-links"></ul>
       </div>
 
@@ -633,9 +633,9 @@ tabs.forEach(function(btn){
 });
 
 // ---------- repo base (edit this if the file isn't at the repo root) ----------
-var REPO_BASE = 'https://github.com/raghavkannan03/arc-drone-delivery/blob/main/'; // set 2026-09-04: this page is published inside docs-site/dist/, which doesn't contain the actual repo files, so links point at GitHub's blob viewer instead of a relative path
+var REPO_BASE = 'https://github.com/raghavkannan03/arc-drone-delivery/blob/main/'; // set 2026-09-04: this page is published inside docs/site/dist/, which doesn't contain the actual repo files, so links point at GitHub's blob viewer instead of a relative path
 
-// ---------- docs site base (the GitHub Pages URL docs-site/ deploys to) ----------
+// ---------- docs site base (the GitHub Pages URL docs/site/ deploys to) ----------
 // Fill this in once the docs.yml workflow has deployed successfully. The
 // URL is shown in Settings -> Pages, and in that workflow run's "deploy"
 // job output. Until then these three links are inert (#).
@@ -800,7 +800,7 @@ var goalsSw = [
    level:'partial', pct:33,
    note:'1 of the 3 required consecutive runs is done on the current build. Flight 6 completed the full mission end to end with no failsafe. Earlier configurations also completed full missions on other days, but under mission logic that has since been rewritten, so they don’t count toward this build’s streak.',
    cite:'Entry 2026-09-03 in CHANGELOG.md'},
-  {n:4, name:'Live telemetry on the operations website', tasks:['Get the operations-website running end-to-end for new app-dev recruits (dev container, Cesium token, Nhost env vars) and refresh stale docs/dependencies','Build the telemetry bridge: pipe PX4 SITL position through a ROS 2 → web relay into the CesiumJS view','Extra: a map pin-drop publishes a goal pose the mission controller can consume'],
+  {n:4, name:'Live telemetry on the operations website', tasks:['Get the operations_website running end-to-end for new app-dev recruits (dev container, Cesium token, Nhost env vars) and refresh stale docs/dependencies','Build the telemetry bridge: pipe PX4 SITL position through a ROS 2 → web relay into the CesiumJS view','Extra: a map pin-drop publishes a goal pose the mission controller can consume'],
    metric:'A new member can clone and run the site from the docs alone, and the Cesium map renders the simulated drone’s live position moving in real time during a SITL flight.',
    level:'unknown', pct:null,
    note:'No mention of an operations website, Cesium, or a telemetry bridge anywhere in the flight-software changelog or the three linked artifacts. This almost certainly lives in a separate ops-website repo this page doesn’t have visibility into.'}

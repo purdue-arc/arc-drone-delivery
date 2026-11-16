@@ -29,7 +29,7 @@ gst-launch-1.0 zedsrc stream-type=0 camera-resolution=3 ! video/x-raw, width=128
 
 
 ## Connect
-then create/edit the values you see in `zed.stp` or here:
+then create/edit the values you see in `zed.sdp` or here:
 ```
 v=0
 o=- 0 0 IN IP4 <IP OF JETSON>
@@ -41,7 +41,7 @@ a=rtpmap:96 H264/90000
 a=framerate:15
 ```
 
-then on the viewing computer, open vlc using the `zed.stp` file using cmd prompt on windows for example by running
+then on the viewing computer, open vlc using the `zed.sdp` file using cmd prompt on windows for example by running
 ```
 "C:\Program Files\VideoLAN\VLC\vlc.exe" zed.sdp --network-caching=125
 ```
