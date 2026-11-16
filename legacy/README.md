@@ -32,3 +32,18 @@ build, and each one conflicts with a node the mission relies on.
 
 These files used to live in
 `navigation-stack/DD_Nav_WS/dd_gazebo_ws/src/vision_landing/src/`.
+
+## `path_planning_original/`
+
+The first version of the team's A*, D* and Dijkstra grid planners, from the
+`DD_Nav_WS` repository. It used to live in `navigation-stack/Path_Planning/`.
+
+- **Replaced by:** `experimental/path_planning/`, a refactor of the same
+  algorithms with one header per module.
+- **Why keep it:** it has two tests the refactor never ported:
+  `tests/benchmark.cpp` (timing comparison of the planners) and
+  `tests/a_star_tests.cpp`. They include `header.hh`, so they only build
+  against this older layout.
+- **Not here:** the Purdue map source data that sat next to this code
+  (`worlds/`). It is simulation input, not planner code, and stays in
+  `navigation-stack/Path_Planning/worlds/`.
