@@ -10,8 +10,9 @@ dist/
 .solid/
 .output/
 
-# IDE
-.vscode/
+# IDE (shared extension recommendations are kept; personal settings are not)
+**/.vscode/*
+!**/.vscode/extensions.json
 .idea/
 *.swp
 *.swo
