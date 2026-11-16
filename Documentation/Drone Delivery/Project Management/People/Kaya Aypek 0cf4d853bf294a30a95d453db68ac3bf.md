@@ -1,5 +1,0 @@
-# Kaya Aypek
-
-Active: Not Active
-Graduation year: 2027
-Subteam: Hardware

@@ -2,9 +2,6 @@
 build/
 install/
 log/
-dd_gazebo_ws/build/
-dd_gazebo_ws/install/
-dd_gazebo_ws/log/
 
 # Node.js
 node_modules/
@@ -13,8 +10,9 @@ dist/
 .solid/
 .output/
 
-# IDE
-.vscode/
+# IDE (shared extension recommendations are kept; personal settings are not)
+**/.vscode/*
+!**/.vscode/extensions.json
 .idea/
 *.swp
 *.swo
@@ -39,11 +37,6 @@ venv/
 *.out
 *.app
 
-# Git LFS
-*.dae filter=lfs diff=lfs merge=lfs -text
-*.gltf filter=lfs diff=lfs merge=lfs -text
-*.stl filter=lfs diff=lfs merge=lfs -text
-
 # Environment files
 .env
 .env.local
@@ -51,9 +44,7 @@ venv/
 
 # Docker files
 docker/.env
-build/
-install/
-log/
+
 # --- Vendored upstream trees, not part of this repo -------------------------
 # PX4-Autopilot is ~4 GB with its build output and is obtained separately.
 # The required version is pinned in navigation-stack/PX4-AUTOPILOT.md.

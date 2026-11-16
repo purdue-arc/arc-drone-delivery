@@ -7,7 +7,7 @@ This directory contains the core ROS 2 navigation workspace for the ARC Drone De
 ```
 navigation-stack/
 ├── DD_Nav_WS/                    # Core navigation workspace
-├── Path_Planning/                # Path planning algorithms
+├── Path_Planning/worlds/         # Purdue map source data for the sim world
 ├── dd_gazebo_ws/                 # Gazebo workspace
 ├── lib/                          # Libraries (Eigen)
 ├── ROS2_PX4_Offboard_Example/   # PX4 offboard velocity & navigation control

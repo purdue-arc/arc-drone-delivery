@@ -55,7 +55,7 @@ services:
   # ZED 2i capture — encodes the left eye to H.264 and streams it to localhost,
   # where zed_apriltag_node (inside the mission container) decodes it.
   #
-  # This used to be a gst-launch line in streaming/README.md that an operator
+  # This used to be a gst-launch line in docs/hardware/zed_streaming/README.md that an operator
   # typed over a serial console, aimed at a laptop over WiFi. That is fine for
   # watching video in VLC and unacceptable as a flight-critical input: nothing
   # restarted it, nothing supervised it, and the aircraft's perception depended

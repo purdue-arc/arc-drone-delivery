@@ -3,7 +3,7 @@ name: Build & deploy flight docs
 # Rebuilds the three flight-docs pages (Software Stack Reference, Flight
 # Readiness Review, Flight Software Logbook) plus their index, and deploys
 # them, along with a copy of drone_delivery_hub.html, to GitHub Pages,
-# whenever CHANGELOG.md, docs-site/ or the hub page changes on the default
+# whenever CHANGELOG.md or docs/site/ (which holds the hub page) changes on the default
 # branch. Also runnable by hand from the Actions tab.
 #
 # One-time setup this workflow can't do for you: in the repo's Settings →
@@ -19,8 +19,7 @@ on:
     branches: [main]
     paths:
       - "CHANGELOG.md"
-      - "docs-site/**"
-      - "drone_delivery_hub.html"
+      - "docs/site/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch: {}
 
@@ -46,15 +45,15 @@ jobs:
           python-version: "3.12"
 
       - name: Install generator dependencies
-        run: pip install -r docs-site/requirements.txt
+        run: pip install -r docs/site/requirements.txt
 
       - name: Generate site
-        run: python docs-site/generate.py --changelog CHANGELOG.md --out docs-site/dist
+        run: python docs/site/generate.py --changelog CHANGELOG.md --out docs/site/dist
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs-site/dist
+          path: docs/site/dist
 
   deploy:
     needs: build
