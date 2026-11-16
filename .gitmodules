@@ -1,12 +1,3 @@
-[submodule "dd_gazebo_ws/src/px4-ros2-interface-lib"]
-	path = dd_gazebo_ws/src/px4-ros2-interface-lib
-	url = https://github.com/Auterion/px4-ros2-interface-lib
-[submodule "dd_gazebo_ws/src/px4_msgs"]
-	path = dd_gazebo_ws/src/px4_msgs
-	url = https://github.com/PX4/px4_msgs.git
-[submodule "dd_gazebo_ws/src/px4_ros_com"]
-	path = dd_gazebo_ws/src/px4_ros_com
-	url = https://github.com/PX4/px4_ros_com
 [submodule "navigation-stack/DD_Nav_WS/dd_gazebo_ws/src/pointcloud_to_grid"]
 	path = navigation-stack/DD_Nav_WS/dd_gazebo_ws/src/pointcloud_to_grid
 	url = https://github.com/jkk-research/pointcloud_to_grid.git
